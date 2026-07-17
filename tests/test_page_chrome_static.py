@@ -146,6 +146,41 @@ def test_evolution_page_supports_refresh_and_runtime_state():
     assert "bg_consciousness_state" in source
 
 
+def test_gigabuddy_product_mode_is_reversible_ui_overlay():
+    config = _read("ouroboros/config.py")
+    app = _read("web/app.js")
+    chat = _read("web/modules/chat.js")
+    gigabuddy = _read("web/modules/gigabuddy.js")
+    settings = _read("web/modules/settings.js")
+    settings_ui = _read("web/modules/settings_ui.js")
+    css = _read("web/style.css")
+    state = _read("ouroboros/gateway/state.py")
+    contracts = _read("ouroboros/gateway/contracts.py")
+
+    assert '"OUROBOROS_PRODUCT_MODE": ""' in config
+    assert '"OUROBOROS_PRODUCT_MODE"' in config and "apply_settings_to_env" in config
+    assert "apiClient.settings()" in app
+    assert "applyGigaBuddyMode(settings)" in app
+    assert "body.dataset.productMode" in gigabuddy
+    assert "renderGigaBuddyTrackPanel" in chat
+    assert "Советчик" in gigabuddy and "Помощник" in gigabuddy and "Партнёр" in gigabuddy
+    assert "s-product-mode" in settings and "OUROBOROS_PRODUCT_MODE" in settings
+    assert "Product Mode" in settings_ui and "ГигаБадди" in settings_ui
+    assert "body.product-gigabuddy #page-chat .chat-composer-pills" in css
+    assert "body.product-gigabuddy #primary-sidebar .nav-utilities" in css
+    assert 'body.product-gigabuddy #page-chat [data-chat-command="restart"]' in css
+    assert "body.product-gigabuddy #page-chat .chat-header-more" in css
+    # Emergency Stop remains visible/structurally available; product mode hides other novice chrome only.
+    assert "body.product-gigabuddy #page-chat .chat-header-actions {\n    display: flex;" in css
+    assert "data-chat-command=\"panic\"" in chat
+    assert "cmd: '/panic'" in chat
+    assert "not a security boundary" in settings_ui
+    # P0 deliberately uses /api/settings, not a new frozen /api/state field.
+    assert "product_mode" not in state
+    assert "product_mode" not in contracts
+
+
+
 def test_server_navigation_and_chat_static_contracts():
     server_source = _read("server.py")
     state_source = _read("ouroboros/gateway/state.py")

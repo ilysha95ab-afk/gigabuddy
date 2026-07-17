@@ -98,6 +98,9 @@ SETTINGS_DEFAULTS = {
     # 1-element chain; empty disables cross-model fallback. Resilience slot — keeps a
     # real default, unlike the worker lanes. (Renamed from the singular MODEL_FALLBACK.)
     "OUROBOROS_MODEL_FALLBACKS": "anthropic/claude-sonnet-4.6",
+    # Product presentation overlay. Empty = ordinary Ouroboros; "gigabuddy" =
+    # GigaBuddy hackathon/demo shell (branding + novice chrome), reversible by restart.
+    "OUROBOROS_PRODUCT_MODE": "",
     "OUROBOROS_MODEL_DEEP_SELF_REVIEW": "openai/gpt-5.5-pro",
     "CLAUDE_CODE_MODEL": "opus[1m]",
     "OUROBOROS_MAX_WORKERS": 10,
@@ -1496,7 +1499,8 @@ def apply_settings_to_env(settings: dict) -> None:
         "OUROBOROS_NETWORK_PASSWORD",
         "OUROBOROS_MODEL", "OUROBOROS_MODEL_HEAVY", "OUROBOROS_MODEL_LIGHT", "OUROBOROS_MODEL_VISION",
         "OUROBOROS_MODEL_CONSCIOUSNESS",
-        "OUROBOROS_MODEL_FALLBACKS", "OUROBOROS_MODEL_DEEP_SELF_REVIEW", "CLAUDE_CODE_MODEL",
+        "OUROBOROS_MODEL_FALLBACKS", "OUROBOROS_PRODUCT_MODE",
+        "OUROBOROS_MODEL_DEEP_SELF_REVIEW", "CLAUDE_CODE_MODEL",
         "OUROBOROS_FALLBACK_COOLDOWN_ENABLED", "OUROBOROS_FALLBACK_COOLDOWN_SEC",
         "OUROBOROS_FALLBACK_ATTEMPTS_PER_MODEL", "OUROBOROS_MODEL_MAX_CONCURRENCY",
         "OUROBOROS_MODEL_SLOT_MAX_WAIT_SEC",

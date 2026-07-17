@@ -391,6 +391,26 @@ export function renderSettingsPage() {
                     </div>
 
                     <div class="form-section">
+                        <h3>Product Mode</h3>
+                        <div class="settings-section-copy">
+                            Reversible presentation overlay for demo/product shells. <code>Ouroboros</code> keeps the ordinary developer interface. <code>ГигаБадди</code> switches the main chat into a novice-facing onboarding mentor shell: branding, adaptation track, and hidden system chrome. This is presentation, not a security boundary; emergency slash commands such as <code>/panic</code> still work.
+                            <br><strong>Applies after refresh/restart:</strong> for the hackathon build, set this before the novice arrives.
+                        </div>
+                        <div class="settings-effort-card">
+                            <label>Product Mode</label>
+                            <input id="s-product-mode" type="hidden" value="">
+                            ${renderSegmentedField({
+                                target: 's-product-mode',
+                                title: 'Switches the visible product shell without replacing Ouroboros identity.',
+                                options: [
+                                    { value: '', label: 'Ouroboros' },
+                                    { value: 'gigabuddy', label: 'ГигаБадди' },
+                                ],
+                            })}
+                        </div>
+                    </div>
+
+                    <div class="form-section">
                         <h3>Image Input</h3>
                         <div class="settings-section-copy">Auto sends images inline to vision-capable models and captions them for blind models. Caption always uses text captions; Inline refuses caption fallback; Off emits placeholders.</div>
                         <div class="settings-effort-card">

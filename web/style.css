@@ -5760,3 +5760,207 @@ textarea.chat-input {
         transition: none;
     }
 }
+
+/* GigaBuddy product mode — reversible novice-facing shell (v6.71.1). */
+.gigabuddy-product-subtitle {
+    position: absolute;
+    top: 66px;
+    left: 24px;
+    z-index: 4;
+    color: rgba(255, 235, 245, 0.72);
+    font-size: 13px;
+    letter-spacing: 0.01em;
+    pointer-events: none;
+}
+
+.gigabuddy-track-panel {
+    display: none;
+    position: absolute;
+    top: 118px;
+    right: 18px;
+    bottom: calc(var(--chat-input-reserve, 108px) + 16px);
+    width: min(360px, 32vw);
+    min-width: 300px;
+    z-index: 4;
+    overflow-y: auto;
+    padding: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 22px;
+    background:
+        linear-gradient(180deg, rgba(42, 31, 54, 0.82), rgba(20, 16, 26, 0.72)),
+        radial-gradient(circle at 20% 0%, rgba(240, 122, 134, 0.18), transparent 190px),
+        radial-gradient(circle at 100% 12%, rgba(232, 121, 249, 0.15), transparent 180px);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+body.product-gigabuddy #page-chat .gigabuddy-track-panel {
+    display: block;
+}
+
+body.product-gigabuddy #page-chat #chat-messages {
+    padding-right: calc(min(360px, 32vw) + 44px);
+}
+
+body.product-gigabuddy #primary-sidebar .nav-utilities,
+body.product-gigabuddy #nav-projects,
+body.product-gigabuddy #page-chat .chat-budget-pill,
+body.product-gigabuddy #page-chat .chat-composer-pills,
+body.product-gigabuddy #page-chat [data-chat-command="restart"],
+body.product-gigabuddy #page-chat .chat-header-more {
+    display: none !important;
+}
+
+body.product-gigabuddy #page-chat .chat-header-actions {
+    display: flex;
+}
+
+body.product-gigabuddy #primary-sidebar .nav-row-main .nav-row-label {
+    font-size: 0;
+}
+
+body.product-gigabuddy #primary-sidebar .nav-row-main .nav-row-label::after {
+    content: 'ГигаБадди';
+    font-size: 13px;
+}
+
+.gigabuddy-track-hero {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 12px;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gigabuddy-track-hero[data-theme="soft-cat"] {
+    background:
+        linear-gradient(135deg, rgba(255, 176, 210, 0.15), rgba(232, 121, 249, 0.08)),
+        rgba(255, 255, 255, 0.04);
+}
+
+.gigabuddy-avatar {
+    width: 46px;
+    height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.10);
+    font-size: 24px;
+}
+
+.gigabuddy-eyebrow,
+.gigabuddy-stage-card span,
+.gigabuddy-next-step span,
+.gigabuddy-readiness span,
+.gigabuddy-progress-row span {
+    color: rgba(255, 255, 255, 0.52);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.gigabuddy-track-hero h3 {
+    margin: 2px 0;
+    font-size: 18px;
+}
+
+.gigabuddy-track-hero p,
+.gigabuddy-stage-card p,
+.gigabuddy-next-step p,
+.gigabuddy-readiness p {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.72);
+    line-height: 1.35;
+}
+
+.gigabuddy-stage-card,
+.gigabuddy-next-step,
+.gigabuddy-readiness,
+.gigabuddy-version-row,
+.gigabuddy-mentor-events {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.gigabuddy-stage-label {
+    display: inline-flex;
+    color: #ffd7e5 !important;
+}
+
+.gigabuddy-progress-row,
+.gigabuddy-version-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.gigabuddy-progress-row {
+    margin-top: 14px;
+}
+
+.gigabuddy-progress-bar {
+    width: 100%;
+    height: 9px;
+    margin-top: 8px;
+    accent-color: #f07a86;
+}
+
+.gigabuddy-track-list,
+.gigabuddy-mentor-events ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 12px 0 0;
+    padding: 0;
+}
+
+.gigabuddy-track-task {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    color: rgba(255, 255, 255, 0.78);
+    line-height: 1.35;
+}
+
+.gigabuddy-track-check {
+    color: var(--accent-light);
+}
+
+.gigabuddy-rollback {
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 999px;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.62);
+}
+
+.gigabuddy-mentor-events summary {
+    cursor: pointer;
+    color: rgba(255, 235, 245, 0.78);
+}
+
+@media (max-width: 1180px) {
+    body.product-gigabuddy #page-chat #chat-messages {
+        padding-right: 20px;
+        padding-bottom: calc(var(--chat-input-reserve, 108px) + 280px);
+    }
+
+    .gigabuddy-track-panel {
+        top: auto;
+        left: 16px;
+        right: 16px;
+        bottom: calc(var(--chat-input-reserve, 108px) + 10px);
+        width: auto;
+        min-width: 0;
+        max-height: 260px;
+    }
+}

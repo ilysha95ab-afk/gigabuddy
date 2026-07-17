@@ -19,6 +19,7 @@ import { initActivity } from './modules/activity.js';
 import { initUpdateStatus } from './modules/update_status.js';
 import { initDashboard } from './modules/dashboard.js';
 import { hydrateNavIcons } from './modules/page_icons.js';
+import { applyGigaBuddyMode } from './modules/gigabuddy.js';
 
 import { initOnboardingOverlay } from './modules/onboarding_overlay.js';
 
@@ -204,6 +205,19 @@ const ctx = {
 
 initChat(ctx);
 initFiles(ctx);
+
+async function refreshProductMode() {
+    try {
+        const settings = await apiClient.settings();
+        const enabled = applyGigaBuddyMode(settings);
+        state.productMode = enabled ? 'gigabuddy' : '';
+    } catch {
+        applyGigaBuddyMode({});
+        state.productMode = '';
+    }
+}
+refreshProductMode();
+window.addEventListener('ouro:settings-updated', refreshProductMode);
 
 // ---------------------------------------------------------------------------
 // Multi-project navigation + right thread panel (v6.32.0). Projects come from

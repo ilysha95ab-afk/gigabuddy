@@ -4,6 +4,7 @@ import { PAGE_ICONS } from './page_icons.js';
 import { showToast } from './toast.js';
 import { downloadViaHostBridge, openViaHostBridge } from './ui_helpers.js';
 import { apiClient, apiFetch } from './api_client.js';
+import { renderGigaBuddyTrackPanel } from './gigabuddy.js';
 import {
     compactModel,
     formatReviewProjection,
@@ -235,6 +236,8 @@ export function createChatInstance({
         });
     page.innerHTML = `
         ${headerHtml}
+        ${!asPanel ? '<div class="gigabuddy-product-subtitle" data-gigabuddy-subtitle hidden></div>' : ''}
+        ${!asPanel ? renderGigaBuddyTrackPanel() : ''}
         <div id="chat-messages"></div>
         <div id="chat-input-area">
             <div id="chat-attachment-preview" class="chat-attachment-preview"></div>
