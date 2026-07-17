@@ -166,6 +166,13 @@ def test_gigabuddy_product_mode_is_reversible_ui_overlay():
     assert "Советчик" in gigabuddy and "Помощник" in gigabuddy and "Партнёр" in gigabuddy
     assert "s-product-mode" in settings and "OUROBOROS_PRODUCT_MODE" in settings
     assert "Product Mode" in settings_ui and "ГигаБадди" in settings_ui
+    assert "GIGABUDDY_ADMIN_PIN" in settings_ui
+    api_client = _read("web/modules/api_client.js")
+    assert "data-gigabuddy-return-form" in gigabuddy
+    assert "gigaBuddyReturn" in chat
+    assert "gigaBuddyReturn" in api_client and "gigabuddy_return" in api_client
+    assert "GIGABUDDY_ADMIN_PIN" in _read("ouroboros/gateway/settings.py")
+    assert "_generic_gigabuddy_settings_guard" in _read("ouroboros/gateway/settings.py")
     assert "body.product-gigabuddy #page-chat .chat-composer-pills" in css
     assert "body.product-gigabuddy #primary-sidebar .nav-utilities" in css
     assert 'body.product-gigabuddy #page-chat [data-chat-command="restart"]' in css

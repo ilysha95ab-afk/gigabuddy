@@ -104,6 +104,18 @@ export function renderGigaBuddyTrackPanel(state = GIGABUDDY_DEMO_STATE) {
                 <span>${escapeHtml(state.behaviorVersion || 'v1')}</span>
                 <button type="button" class="gigabuddy-rollback" disabled title="Demo surface: rollback is state/model in this increment">Откат к заботе</button>
             </div>
+            <form class="gigabuddy-return-card" data-gigabuddy-return-form>
+                <div>
+                    <strong>Owner/admin</strong>
+                    <p>Вернуться в обычный Ouroboros</p>
+                </div>
+                <label class="gigabuddy-return-pin">
+                    <span>PIN</span>
+                    <input name="pin" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="4" pattern="[0-9]{4}" placeholder="••••" aria-label="Четырёхзначный PIN возврата в Ouroboros">
+                </label>
+                <button type="submit" class="gigabuddy-return-button">Вернуться</button>
+                <div class="gigabuddy-return-status" data-gigabuddy-return-status aria-live="polite"></div>
+            </form>
             <details class="gigabuddy-mentor-events">
                 <summary>Telegram / наставник</summary>
                 <ul>${eventItems}</ul>

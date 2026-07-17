@@ -14,7 +14,7 @@ Set the owner/admin setting:
 
 Empty value means ordinary Ouroboros. For the demo, configure the mode before the novice arrives; a restart or UI reload is the safest activation path. The frontend reads `/api/settings` and applies `body.product-gigabuddy`; no frozen `/api/state` contract field is added in this first increment.
 
-## What is live in v6.71.1
+## What is live in v6.71.2
 
 - Main chat branding changes to **ГигаБадди**.
 - Subtitle appears: **персональный ИИ-наставник адаптации**.
@@ -31,14 +31,17 @@ Empty value means ordinary Ouroboros. For the demo, configure the mode before th
 - Stage model is present in code: **Советчик → Помощник → Партнёр**.
 - Settings exposes a Product Mode segmented control under Behavior.
 - Static tests pin that the overlay is reversible, ordinary mode remains default, `/api/state` is untouched, and `/panic` remains structurally available.
+- A visible owner/admin return form asks for a four-digit PIN and calls the existing `/api/settings` seam with `_action: "gigabuddy_return"`. The server checks `GIGABUDDY_ADMIN_PIN`, clears product mode only on a correct PIN, and keeps submitted PIN values out of responses/audit payloads.
 
 ## Deliberate boundaries
 
-This is presentation, not an authentication or security boundary. Emergency slash commands and owner/admin routes still exist. The novice shell hides confusing or dangerous controls from the product surface; it does not delete the underlying capabilities.
+This is presentation, not public authentication or a security boundary. Emergency slash commands and owner/admin routes still exist. The novice shell hides confusing or dangerous controls from the product surface; it does not delete the underlying capabilities.
+
+The return PIN is a local owner/admin recovery gate for the visible GigaBuddy shell. Set `GIGABUDDY_ADMIN_PIN` in Settings → Secrets before enabling the mode. While GigaBuddy is active, generic settings saves cannot clear `OUROBOROS_PRODUCT_MODE` or overwrite `GIGABUDDY_ADMIN_PIN`; the server-side PIN action is the supported exit path. This prevents the visible return button from being mere UI theater, but it is still not a replacement for the normal network/password boundary.
 
 Sensitive diagnostics, such as anxiety/confidence risk, must not be shown to the novice as labels. They may inform support style internally, but outward language should describe the format of help, level of support, and work style.
 
-## What remains prototype/demo in v6.71.1
+## What remains prototype/demo in v6.71.2
 
 - Employee state is synthetic and static; Alice's uploaded ODT files are not parsed yet.
 - Telegram mentor commands are documented as product flow but not live-wired here.

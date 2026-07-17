@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -10,6 +11,7 @@ import pathlib
 import re
 import socket
 import sys
+import time
 from typing import Any, Dict, Optional
 
 from starlette.requests import Request
@@ -50,6 +52,7 @@ _SECRET_SETTING_KEYS = {
     "ANTHROPIC_API_KEY",
     "GITHUB_TOKEN",
     "OUROBOROS_NETWORK_PASSWORD",
+    "GIGABUDDY_ADMIN_PIN",
 }
 _CUSTOM_SECRET_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
 
@@ -136,6 +139,7 @@ _PASSWORD_CLASS_KEYS = {
     "OUROBOROS_NETWORK_PASSWORD",
     "GIGACHAT_PASSWORD",
     "GIGACHAT_CREDENTIALS",
+    "GIGABUDDY_ADMIN_PIN",
 }
 
 
@@ -291,7 +295,7 @@ def _merge_settings_payload(current: Dict[str, Any], body: Dict[str, Any]) -> Di
             continue
         if key not in body:
             continue
-        if key in _SECRET_SETTING_KEYS and _looks_masked_secret(body[key]) and merged.get(key):
+        if key in _SECRET_SETTING_KEYS and _looks_masked_secret(body[key]):
             continue
         merged[key] = body[key]
     for key, value in body.items():
@@ -302,7 +306,7 @@ def _merge_settings_payload(current: Dict[str, Any], body: Dict[str, Any]) -> Di
             continue
         if text_key.startswith("OUROBOROS_"):
             continue
-        if _looks_masked_secret(value) and merged.get(text_key):
+        if _looks_masked_secret(value):
             continue
         merged[text_key] = value
     return merged
@@ -343,7 +347,10 @@ def _owner_audit(request: Request, action: str, payload: Dict[str, Any]) -> None
                 **{
                     key: value
                     for key, value in dict(payload or {}).items()
-                    if "key" not in str(key).lower() and "secret" not in str(key).lower()
+                    if not any(
+                        token in str(key).lower()
+                        for token in ("key", "secret", "pin", "password", "credential", "token")
+                    )
                 },
             },
         )
@@ -384,6 +391,117 @@ def _owner_read_settings_raw() -> Dict[str, Any]:
     except Exception:
         log.debug("Failed to read raw owner settings; using defaults", exc_info=True)
     return merged
+
+
+_GIGABUDDY_PIN_RE = re.compile(r"^\d{4}$")
+_GIGABUDDY_RETURN_FAILURES: Dict[str, Dict[str, Any]] = {}
+_GIGABUDDY_RETURN_MAX_FAILURES = 5
+_GIGABUDDY_RETURN_COOLDOWN_SEC = 30.0
+
+
+def _is_gigabuddy_mode(value: Any) -> bool:
+    return str(value or "").strip().lower() == "gigabuddy"
+
+
+def _gigabuddy_return_client_key(request: Request) -> str:
+    client = getattr(request, "client", None)
+    return str(getattr(client, "host", "") or "local")
+
+
+def _gigabuddy_return_cooldown_remaining(client_key: str, now: float | None = None) -> float:
+    now = time.monotonic() if now is None else now
+    row = _GIGABUDDY_RETURN_FAILURES.get(client_key) or {}
+    until = float(row.get("cooldown_until") or 0.0)
+    return max(0.0, until - now)
+
+
+def _record_gigabuddy_return_failure(client_key: str) -> None:
+    now = time.monotonic()
+    row = _GIGABUDDY_RETURN_FAILURES.get(client_key) or {"count": 0, "cooldown_until": 0.0}
+    count = int(row.get("count") or 0) + 1
+    cooldown_until = float(row.get("cooldown_until") or 0.0)
+    if count >= _GIGABUDDY_RETURN_MAX_FAILURES:
+        cooldown_until = now + _GIGABUDDY_RETURN_COOLDOWN_SEC
+        count = 0
+    _GIGABUDDY_RETURN_FAILURES[client_key] = {"count": count, "cooldown_until": cooldown_until}
+
+
+def _clear_gigabuddy_return_failures(client_key: str) -> None:
+    _GIGABUDDY_RETURN_FAILURES.pop(client_key, None)
+
+
+def _settings_have_gigabuddy_mode(*settings_sets: Dict[str, Any]) -> bool:
+    return any(
+        _is_gigabuddy_mode(settings.get("OUROBOROS_PRODUCT_MODE"))
+        for settings in settings_sets
+        if settings
+    )
+
+
+def _generic_gigabuddy_settings_guard(
+    raw_settings: Dict[str, Any],
+    effective_settings: Dict[str, Any],
+    body: Dict[str, Any],
+) -> Optional[JSONResponse]:
+    """Block bypasses of the active GigaBuddy PIN gate through generic settings saves."""
+    if not _settings_have_gigabuddy_mode(raw_settings, effective_settings):
+        return None
+    configured_pin = str(raw_settings.get("GIGABUDDY_ADMIN_PIN") or "")
+    pin_configured = bool(_GIGABUDDY_PIN_RE.fullmatch(configured_pin))
+    if (
+        pin_configured
+        and "OUROBOROS_PRODUCT_MODE" in body
+        and not _is_gigabuddy_mode(body.get("OUROBOROS_PRODUCT_MODE"))
+    ):
+        return json_error("Use the GigaBuddy return PIN to leave product mode.", 403)
+    if "GIGABUDDY_ADMIN_PIN" in body:
+        proposed = str(body.get("GIGABUDDY_ADMIN_PIN") or "")
+        current = str(raw_settings.get("GIGABUDDY_ADMIN_PIN") or "")
+        if proposed != current and not _looks_masked_secret(proposed):
+            return json_error("GigaBuddy admin PIN cannot be changed while product mode is active.", 403)
+    return None
+
+
+def _handle_gigabuddy_return_action(request: Request, body: Dict[str, Any]) -> JSONResponse:
+    client_key = _gigabuddy_return_client_key(request)
+    remaining = _gigabuddy_return_cooldown_remaining(client_key)
+    if remaining > 0:
+        _owner_audit(request, "gigabuddy_return", {"result": "cooldown"})
+        return json_error("Too many failed attempts. Wait and try again.", 429)
+
+    submitted_pin = str((body or {}).get("pin") or "")
+    current = _owner_read_settings_raw()
+    stored_pin = str(current.get("GIGABUDDY_ADMIN_PIN") or "")
+    pin_configured = bool(_GIGABUDDY_PIN_RE.fullmatch(stored_pin))
+    allowed = bool(
+        pin_configured
+        and _GIGABUDDY_PIN_RE.fullmatch(submitted_pin)
+        and hmac.compare_digest(stored_pin, submitted_pin)
+    )
+    previous_mode = str(current.get("OUROBOROS_PRODUCT_MODE") or "")
+    if not _settings_have_gigabuddy_mode(current, load_settings()):
+        _owner_audit(request, "gigabuddy_return", {"result": "not_active"})
+        return json_error("GigaBuddy mode is not active.", 409)
+    if not allowed:
+        _record_gigabuddy_return_failure(client_key)
+        _owner_audit(request, "gigabuddy_return", {"result": "denied", "pin_configured": pin_configured})
+        return json_error("Invalid GigaBuddy return PIN.", 403)
+
+    current["OUROBOROS_PRODUCT_MODE"] = ""
+    _owner_write_settings(current)
+    _apply_settings_to_env(current)
+    _clear_gigabuddy_return_failures(client_key)
+    _owner_audit(
+        request,
+        "gigabuddy_return",
+        {
+            "result": "success",
+            "previous_product_mode": previous_mode,
+            "product_mode": "",
+            "pin_configured": True,
+        },
+    )
+    return JSONResponse({"status": "saved", "ok": True, "product_mode": ""})
 
 
 def _has_running_agent_tasks() -> bool:
@@ -880,6 +998,11 @@ async def api_settings_post(request: Request) -> JSONResponse:
         body = await request.json()
         if not isinstance(body, dict):
             return json_error("JSON body must be an object.", 400)
+        action = str(body.get("_action") or "").strip()
+        if action == "gigabuddy_return":
+            return _handle_gigabuddy_return_action(request, body)
+        if action:
+            return json_error("Unknown settings action.", 400)
         # Reject a malformed post-task evolution cadence at the API boundary: the
         # read-time getter only normalizes, and the Settings UI validates its own Save,
         # but a direct API client must not be able to persist e.g. every_n:0 or garbage.
@@ -905,6 +1028,9 @@ async def api_settings_post(request: Request) -> JSONResponse:
         from ouroboros.config import get_runtime_mode, normalize_runtime_mode as _norm_runtime_mode
 
         raw_old_settings = _owner_read_settings_raw()
+        guard_response = _generic_gigabuddy_settings_guard(raw_old_settings, old_settings, body)
+        if guard_response is not None:
+            return guard_response
         pending_runtime_mode = _norm_runtime_mode(
             raw_old_settings.get("OUROBOROS_RUNTIME_MODE", old_settings.get("OUROBOROS_RUNTIME_MODE"))
         )

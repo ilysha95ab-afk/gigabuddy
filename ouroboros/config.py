@@ -99,7 +99,8 @@ SETTINGS_DEFAULTS = {
     # real default, unlike the worker lanes. (Renamed from the singular MODEL_FALLBACK.)
     "OUROBOROS_MODEL_FALLBACKS": "anthropic/claude-sonnet-4.6",
     # Product presentation overlay. Empty = ordinary Ouroboros; "gigabuddy" =
-    # GigaBuddy hackathon/demo shell (branding + novice chrome), reversible by restart.
+    # GigaBuddy hackathon/demo shell (branding + novice chrome), reversible through
+    # the visible server-verified GIGABUDDY_ADMIN_PIN return path.
     "OUROBOROS_PRODUCT_MODE": "",
     "OUROBOROS_MODEL_DEEP_SELF_REVIEW": "openai/gpt-5.5-pro",
     "CLAUDE_CODE_MODEL": "opus[1m]",

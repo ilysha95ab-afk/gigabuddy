@@ -188,6 +188,7 @@ export const SECRET_KEYS = [
     ['ANTHROPIC_API_KEY', 'Anthropic API Key', 'sk-ant-...'],
     ['GITHUB_TOKEN', 'GitHub Token', 'ghp_...'],
     ['OUROBOROS_NETWORK_PASSWORD', 'Network Password', 'Required for LAN/Docker binds'],
+    ['GIGABUDDY_ADMIN_PIN', 'GigaBuddy return PIN', '4 digits'],
 ];
 
 function secretSettingsSection() {
@@ -396,7 +397,7 @@ export function renderSettingsPage() {
                             Reversible presentation overlay for demo/product shells. <code>Ouroboros</code> keeps the ordinary developer interface. <code>ГигаБадди</code> switches the main chat into a novice-facing onboarding mentor shell: branding, adaptation track, and hidden system chrome. This is presentation, not a security boundary; emergency slash commands such as <code>/panic</code> still work.
                             <br><strong>Applies after refresh/restart:</strong> for the hackathon build, set this before the novice arrives.
                         </div>
-                        <div class="settings-effort-card">
+                        <div class="settings-effort-card" data-product-mode-card>
                             <label>Product Mode</label>
                             <input id="s-product-mode" type="hidden" value="">
                             ${renderSegmentedField({
@@ -407,6 +408,9 @@ export function renderSettingsPage() {
                                     { value: 'gigabuddy', label: 'ГигаБадди' },
                                 ],
                             })}
+                            <div id="s-product-mode-locked-note" class="settings-inline-note" hidden>
+                                ГигаБадди сейчас активен. Обычное сохранение настроек не выводит из этого режима; используйте форму «Вернуться в Ouroboros» с четырёхзначным PIN в панели ГигаБадди.
+                            </div>
                         </div>
                     </div>
 

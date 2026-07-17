@@ -7,21 +7,30 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 
-def _settings_client(monkeypatch, tmp_path, current: dict):
+def _settings_client(monkeypatch, tmp_path, current: dict, raw_current: dict | None = None):
     import server as srv
     import ouroboros.gateway.settings as gateway_settings
 
+    raw_state = raw_current if raw_current is not None else current
     monkeypatch.setattr(srv, "load_settings", lambda: dict(current))
+    monkeypatch.setattr(gateway_settings, "load_settings", lambda: dict(current))
+    monkeypatch.setattr(gateway_settings, "_owner_read_settings_raw", lambda: dict(raw_state))
 
     def fake_save_settings(settings, *args, **kwargs):
         current.clear()
         current.update(settings)
+        if raw_current is not None:
+            raw_current.clear()
+            raw_current.update(settings)
 
     monkeypatch.setattr(srv, "save_settings", fake_save_settings)
+    monkeypatch.setattr(gateway_settings, "save_settings", fake_save_settings)
     monkeypatch.setattr(gateway_settings, "_owner_write_settings", fake_save_settings)
     monkeypatch.setattr(srv, "_apply_settings_to_env", lambda *_a, **_k: None)
+    monkeypatch.setattr(gateway_settings, "_apply_settings_to_env", lambda *_a, **_k: None)
     monkeypatch.setattr(srv, "_start_supervisor_if_needed", lambda *_a, **_k: False)
     monkeypatch.setattr(srv, "apply_runtime_provider_defaults", lambda s: (dict(s), False, []))
+    monkeypatch.setattr(gateway_settings, "apply_runtime_provider_defaults", lambda s: (dict(s), False, []))
     monkeypatch.setattr(srv, "_mcp_reconfigure_startup", lambda *_a, **_k: None, raising=False)
 
     app = Starlette(routes=[Route("/api/settings", endpoint=srv.api_settings_post, methods=["POST"])])
@@ -164,3 +173,159 @@ def test_settings_post_errors_on_max_route_change_when_provider_unreachable(monk
     # The model was NOT saved — the error path returns before persistence.
     assert current["OUROBOROS_MODEL"] == "openrouter/gpt-5.5"
     assert current["OUROBOROS_CONTEXT_MODE"] == "max"
+
+
+def test_gigabuddy_return_pin_action_clears_product_mode(monkeypatch, tmp_path):
+    from ouroboros.config import SETTINGS_DEFAULTS as _defaults
+    import ouroboros.gateway.settings as gateway_settings
+
+    current = dict(_defaults)
+    current["OUROBOROS_PRODUCT_MODE"] = "gigabuddy"
+    current["GIGABUDDY_ADMIN_PIN"] = "1234"
+    gateway_settings._GIGABUDDY_RETURN_FAILURES.clear()
+    client = _settings_client(monkeypatch, tmp_path, current)
+
+    bad = client.post("/api/settings", json={"_action": "gigabuddy_return", "pin": "0000"})
+    assert bad.status_code == 403
+    assert "0000" not in bad.text
+    assert current["OUROBOROS_PRODUCT_MODE"] == "gigabuddy"
+
+    malformed = client.post("/api/settings", json={"_action": "gigabuddy_return", "pin": "12ab"})
+    assert malformed.status_code == 403
+    assert "12ab" not in malformed.text
+    assert current["OUROBOROS_PRODUCT_MODE"] == "gigabuddy"
+
+    current["GIGABUDDY_ADMIN_PIN"] = ""
+    unset = client.post("/api/settings", json={"_action": "gigabuddy_return", "pin": "1234"})
+    assert unset.status_code == 403
+    assert "1234" not in unset.text
+    assert current["OUROBOROS_PRODUCT_MODE"] == "gigabuddy"
+    current["GIGABUDDY_ADMIN_PIN"] = "1234"
+
+    good = client.post("/api/settings", json={"_action": "gigabuddy_return", "pin": "1234"})
+    assert good.status_code == 200, good.text
+    assert good.json().get("ok") is True
+    assert good.json().get("product_mode") == ""
+    assert "1234" not in good.text
+    assert current["OUROBOROS_PRODUCT_MODE"] == ""
+
+
+def test_gigabuddy_generic_settings_cannot_bypass_active_pin_gate(monkeypatch, tmp_path):
+    from ouroboros.config import SETTINGS_DEFAULTS as _defaults
+    import ouroboros.gateway.settings as gateway_settings
+
+    current = dict(_defaults)
+    current["OUROBOROS_PRODUCT_MODE"] = "gigabuddy"
+    current["GIGABUDDY_ADMIN_PIN"] = "1234"
+    gateway_settings._GIGABUDDY_RETURN_FAILURES.clear()
+    client = _settings_client(monkeypatch, tmp_path, current)
+
+    exit_resp = client.post("/api/settings", json={"OUROBOROS_PRODUCT_MODE": ""})
+    assert exit_resp.status_code == 403
+    assert current["OUROBOROS_PRODUCT_MODE"] == "gigabuddy"
+
+    overwrite_resp = client.post("/api/settings", json={"GIGABUDDY_ADMIN_PIN": "9999"})
+    assert overwrite_resp.status_code == 403
+    assert current["GIGABUDDY_ADMIN_PIN"] == "1234"
+
+    masked_resp = client.post("/api/settings", json={"GIGABUDDY_ADMIN_PIN": "***set***"})
+    assert masked_resp.status_code == 200, masked_resp.text
+    assert current["GIGABUDDY_ADMIN_PIN"] == "1234"
+
+
+def test_gigabuddy_return_pin_cooldown(monkeypatch, tmp_path):
+    from ouroboros.config import SETTINGS_DEFAULTS as _defaults
+    import ouroboros.gateway.settings as gateway_settings
+
+    current = dict(_defaults)
+    current["OUROBOROS_PRODUCT_MODE"] = "gigabuddy"
+    current["GIGABUDDY_ADMIN_PIN"] = "1234"
+    gateway_settings._GIGABUDDY_RETURN_FAILURES.clear()
+    client = _settings_client(monkeypatch, tmp_path, current)
+
+    for _ in range(gateway_settings._GIGABUDDY_RETURN_MAX_FAILURES):
+        resp = client.post("/api/settings", json={"_action": "gigabuddy_return", "pin": "0000"})
+        assert resp.status_code == 403
+    cooled = client.post("/api/settings", json={"_action": "gigabuddy_return", "pin": "1234"})
+    assert cooled.status_code == 429
+    assert current["OUROBOROS_PRODUCT_MODE"] == "gigabuddy"
+
+
+def test_gigabuddy_generic_guard_uses_effective_mode_when_raw_differs(monkeypatch, tmp_path):
+    from ouroboros.config import SETTINGS_DEFAULTS as _defaults
+    import ouroboros.gateway.settings as gateway_settings
+
+    effective = dict(_defaults)
+    effective["OUROBOROS_PRODUCT_MODE"] = "gigabuddy"
+    effective["GIGABUDDY_ADMIN_PIN"] = "1234"
+    raw = dict(effective)
+    raw["OUROBOROS_PRODUCT_MODE"] = ""
+    gateway_settings._GIGABUDDY_RETURN_FAILURES.clear()
+    client = _settings_client(monkeypatch, tmp_path, effective, raw_current=raw)
+
+    resp = client.post("/api/settings", json={"OUROBOROS_PRODUCT_MODE": ""})
+
+    assert resp.status_code == 403
+    assert effective["OUROBOROS_PRODUCT_MODE"] == "gigabuddy"
+    assert raw["OUROBOROS_PRODUCT_MODE"] == ""
+
+
+def test_masked_gigabuddy_pin_placeholder_does_not_create_secret(monkeypatch, tmp_path):
+    from ouroboros.config import SETTINGS_DEFAULTS as _defaults
+    import ouroboros.gateway.settings as gateway_settings
+
+    current = dict(_defaults)
+    current["OUROBOROS_PRODUCT_MODE"] = ""
+    current.pop("GIGABUDDY_ADMIN_PIN", None)
+    gateway_settings._GIGABUDDY_RETURN_FAILURES.clear()
+    client = _settings_client(monkeypatch, tmp_path, current)
+
+    resp = client.post("/api/settings", json={"GIGABUDDY_ADMIN_PIN": "***set***"})
+
+    assert resp.status_code == 200, resp.text
+    assert "GIGABUDDY_ADMIN_PIN" not in current
+
+
+def test_unknown_settings_action_is_not_persisted(monkeypatch, tmp_path):
+    from ouroboros.config import SETTINGS_DEFAULTS as _defaults
+
+    current = dict(_defaults)
+    client = _settings_client(monkeypatch, tmp_path, current)
+
+    resp = client.post("/api/settings", json={"_action": "unknown_demo_action"})
+
+    assert resp.status_code == 400
+    assert "_action" not in current
+
+
+
+def test_owner_audit_filters_pin_password_credential_and_token(monkeypatch, tmp_path):
+    import json
+    from types import SimpleNamespace
+    import ouroboros.gateway.settings as gateway_settings
+
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(drive_root=tmp_path)),
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    gateway_settings._owner_audit(
+        request,
+        "test_secret_filter",
+        {
+            "submitted_pin": "1234",
+            "admin_password": "pw",
+            "credential_hint": "cred",
+            "session_token": "tok",
+            "public_result": "ok",
+        },
+    )
+
+    event_lines = (tmp_path / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    row = json.loads(event_lines[-1])
+    assert row["public_result"] == "ok"
+    assert "submitted_pin" not in row
+    assert "admin_password" not in row
+    assert "credential_hint" not in row
+    assert "session_token" not in row
+    assert "1234" not in json.dumps(row)

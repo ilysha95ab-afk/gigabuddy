@@ -376,6 +376,31 @@ export function initSettings({ state, setBeforePageLeave, ws } = {}) {
         });
     }
 
+    function syncProductModeLockState(settings = currentSettings || {}) {
+        const active = String(settings.OUROBOROS_PRODUCT_MODE || '').trim().toLowerCase() === 'gigabuddy';
+        const pinConfigured = Boolean(String(settings.GIGABUDDY_ADMIN_PIN || '').trim());
+        const locked = active && pinConfigured;
+        const note = byId('s-product-mode-locked-note');
+        const card = page.querySelector('[data-product-mode-card]');
+        const group = page.querySelector('[data-effort-target="s-product-mode"]');
+        const input = byId('s-product-mode');
+        if (note) {
+            note.hidden = !active;
+            note.textContent = locked
+                ? 'ГигаБадди сейчас активен. Обычное сохранение настроек не выводит из этого режима; используйте форму «Вернуться в Ouroboros» с четырёхзначным PIN в панели ГигаБадди.'
+                : 'ГигаБадди сейчас активен, но PIN возврата не настроен. Можно вернуть Product Mode в Ouroboros здесь и сохранить настройки.';
+        }
+        if (card) card.classList.toggle('settings-field-locked', locked);
+        if (input) delete input.dataset.effortTouched;
+        group?.querySelectorAll('[data-effort-value]').forEach((button) => {
+            button.disabled = locked;
+            button.setAttribute('aria-disabled', locked ? 'true' : 'false');
+            button.title = locked
+                ? 'Use the GigaBuddy return PIN form to leave product mode.'
+                : 'Switches the visible product shell without replacing Ouroboros identity.';
+        });
+    }
+
     function snapshotSettingsDraft() {
         return JSON.stringify({
             ...collectBody(),
@@ -526,6 +551,7 @@ export function initSettings({ state, setBeforePageLeave, ws } = {}) {
         syncEffortSegments(page);
         syncRuntimeModeBridgeState();
         syncPostTaskEvolutionUi();
+        syncProductModeLockState(s);
         refreshSafetySkipCounter();  // fire-and-forget; fills the 24h audited-skip note
     }
 

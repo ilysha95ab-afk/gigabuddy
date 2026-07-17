@@ -460,6 +460,37 @@ export function createChatInstance({
         stagePendingFiles(event.dataTransfer?.files || []);
     });
 
+    page.addEventListener('submit', async (event) => {
+        const form = event.target?.closest?.('[data-gigabuddy-return-form]');
+        if (!form) return;
+        event.preventDefault();
+        const inputEl = form.querySelector('input[name="pin"]');
+        const statusEl = form.querySelector('[data-gigabuddy-return-status]');
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const pin = String(inputEl?.value || '');
+        if (!/^\d{4}$/.test(pin)) {
+            if (statusEl) statusEl.textContent = 'Введите 4 цифры.';
+            inputEl?.focus();
+            return;
+        }
+        if (inputEl) inputEl.value = '';
+        if (submitBtn) submitBtn.disabled = true;
+        if (statusEl) statusEl.textContent = 'Проверяю PIN…';
+        try {
+            await apiClient.gigaBuddyReturn(pin);
+            if (statusEl) statusEl.textContent = 'Режим Ouroboros возвращён.';
+            showToast('ГигаБадди выключен. Возвращаю обычный Ouroboros.', 'ok');
+            window.dispatchEvent(new CustomEvent('ouro:settings-updated', { detail: { reason: 'gigabuddy return', source: 'gigabuddy' } }));
+        } catch (err) {
+            const message = err?.message || 'Неверный PIN.';
+            if (statusEl) statusEl.textContent = message;
+            showToast(`Не удалось выйти из ГигаБадди: ${message}`, 'error');
+            inputEl?.focus();
+        } finally {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    });
+
     // Pass 1 builds live cards in memory; pass 2 inserts them in transcript order.
     let _syncPass1Active = false;
 
