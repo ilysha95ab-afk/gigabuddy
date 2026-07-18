@@ -203,10 +203,6 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
             <progress class="gigabuddy-progress-bar" max="100" value="${progress}" aria-label="Прогресс адаптации: ${progress}%"></progress>
             ${trackStages ? `<ul class="gigabuddy-adapt-track" aria-label="Стадии адаптационного трека">${trackStages}</ul>` : ''}
             <ul class="gigabuddy-track-list">${taskItems}</ul>
-            <div class="gigabuddy-mentor-boundary">
-                <span>Наставник</span>
-                <p>Задачи и переходы меняются наставником через Telegram/admin-контур; сотруднику здесь показан только текущий трек.</p>
-            </div>
             <div class="gigabuddy-next-step">
                 <span>Следующий шаг</span>
                 <p>${escapeHtml(state.nextStep || '')}</p>
@@ -215,10 +211,10 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
                 <span>Готовность к переходу</span>
                 <p>${escapeHtml(state.readiness || '')}</p>
             </div>
-            <div class="gigabuddy-admin-surface-note">
-                <span>Наставнический контур</span>
-                <p>Переходы ролей и изменения трека согласуются с наставником снаружи этого экрана; здесь ты видишь текущую версию поддержки.</p>
-            </div>
+            <details class="gigabuddy-mentor-details">
+                <summary>Наставнический контур</summary>
+                <p>Задачи, переходы ролей и изменения трека согласуются с наставником через Telegram/admin-контур снаружи этого экрана; здесь ты видишь только текущий трек и версию поддержки.</p>
+            </details>
             <div class="gigabuddy-version-row">
                 <span>${escapeHtml(state.behaviorVersion || 'v1')}</span>
                 <span>Прогресс сохраняется при откате поведения</span>

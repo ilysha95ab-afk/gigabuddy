@@ -6123,9 +6123,7 @@ body.product-gigabuddy .gigabuddy-adapt-stage[data-status="active"] .gigabuddy-a
     font-size: 0.82rem;
 }
 
-.gigabuddy-demo-context,
-.gigabuddy-mentor-boundary,
-.gigabuddy-admin-surface-note {
+.gigabuddy-demo-context {
     margin-top: 12px;
     padding: 11px 12px;
     border-radius: 16px;
@@ -6133,20 +6131,40 @@ body.product-gigabuddy .gigabuddy-adapt-stage[data-status="active"] .gigabuddy-a
     border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
-.gigabuddy-demo-context span,
-.gigabuddy-mentor-boundary span,
-.gigabuddy-admin-surface-note span {
+.gigabuddy-demo-context span {
     color: rgba(255, 255, 255, 0.58);
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
 }
 
-.gigabuddy-demo-context p,
-.gigabuddy-mentor-boundary p,
-.gigabuddy-admin-surface-note p {
+.gigabuddy-demo-context p {
     margin: 4px 0 0;
     color: rgba(255, 255, 255, 0.72);
+    line-height: 1.35;
+}
+
+/* Mentor circuit is collapsed by default so the novice panel stays focused
+   on the adaptation track + profile; details reuses the events-menu grammar. */
+.gigabuddy-mentor-details {
+    margin-top: 12px;
+    padding: 11px 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.gigabuddy-mentor-details summary {
+    cursor: pointer;
+    color: rgba(255, 235, 245, 0.7);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.gigabuddy-mentor-details p {
+    margin: 8px 0 0;
+    color: rgba(255, 255, 255, 0.68);
     line-height: 1.35;
 }
 
