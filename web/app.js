@@ -211,9 +211,11 @@ async function refreshProductMode() {
         const settings = await apiClient.settings();
         const enabled = applyGigaBuddyMode(settings);
         state.productMode = enabled ? 'gigabuddy' : '';
+        window.dispatchEvent(new CustomEvent('ouro:gigabuddy-mode-changed', { detail: { enabled, productMode: state.productMode } }));
     } catch {
         applyGigaBuddyMode({});
         state.productMode = '';
+        window.dispatchEvent(new CustomEvent('ouro:gigabuddy-mode-changed', { detail: { enabled: false, productMode: '' } }));
     }
 }
 refreshProductMode();

@@ -4,7 +4,7 @@ import { PAGE_ICONS } from './page_icons.js';
 import { showToast } from './toast.js';
 import { downloadViaHostBridge, openViaHostBridge } from './ui_helpers.js';
 import { apiClient, apiFetch } from './api_client.js';
-import { renderGigaBuddyTrackPanel } from './gigabuddy.js';
+import { bindGigaBuddyPanel, refreshGigaBuddyPanel, renderGigaBuddyTrackPanel } from './gigabuddy.js';
 import {
     compactModel,
     formatReviewProjection,
@@ -278,6 +278,13 @@ export function createChatInstance({
         });
     }
     container.appendChild(page);
+    if (!asPanel) {
+        bindGigaBuddyPanel(page);
+        const refreshGigaBuddy = () => refreshGigaBuddyPanel(page).catch(() => {});
+        window.addEventListener('ouro:gigabuddy-mode-changed', refreshGigaBuddy);
+        window.addEventListener('ouro:settings-updated', refreshGigaBuddy);
+        setTimeout(refreshGigaBuddy, 0);
+    }
 
     const byId = (suffix) => page.querySelector(`[id="${idPrefix}-${suffix}"]`);
     const messagesDiv = byId('messages');

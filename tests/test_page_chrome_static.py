@@ -153,6 +153,7 @@ def test_gigabuddy_product_mode_is_reversible_ui_overlay():
     gigabuddy = _read("web/modules/gigabuddy.js")
     settings = _read("web/modules/settings.js")
     settings_ui = _read("web/modules/settings_ui.js")
+    api_client = _read("web/modules/api_client.js")
     css = _read("web/style.css")
     state = _read("ouroboros/gateway/state.py")
     contracts = _read("ouroboros/gateway/contracts.py")
@@ -163,11 +164,21 @@ def test_gigabuddy_product_mode_is_reversible_ui_overlay():
     assert "applyGigaBuddyMode(settings)" in app
     assert "body.dataset.productMode" in gigabuddy
     assert "renderGigaBuddyTrackPanel" in chat
+    assert "refreshGigaBuddyPanel" in chat and "bindGigaBuddyPanel" in chat
+    assert "gigaBuddy: (op, payload = {})" in api_client
+    assert "ouro:gigabuddy-mode-changed" in app
+    assert "data-gigabuddy-action" not in gigabuddy
+    assert "data-gigabuddy-add-task" not in gigabuddy
+    assert "gigabuddy-admin-actions" not in gigabuddy
+    assert "Подтвердить переход" not in gigabuddy
+    assert "Быстрый виток" not in gigabuddy
+    assert "Откат к заботе" not in gigabuddy
+    assert "Задача от наставника" not in gigabuddy
+    assert "Наставнический контур" in gigabuddy
     assert "Советчик" in gigabuddy and "Помощник" in gigabuddy and "Партнёр" in gigabuddy
     assert "s-product-mode" in settings and "OUROBOROS_PRODUCT_MODE" in settings
     assert "Product Mode" in settings_ui and "ГигаБадди" in settings_ui
     assert "GIGABUDDY_ADMIN_PIN" in settings_ui
-    api_client = _read("web/modules/api_client.js")
     assert "data-gigabuddy-return-form" in gigabuddy
     assert "gigaBuddyReturn" in chat
     assert "gigaBuddyReturn" in api_client and "gigabuddy_return" in api_client

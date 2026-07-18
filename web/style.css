@@ -6028,3 +6028,54 @@ body.product-gigabuddy #primary-sidebar .nav-row-main .nav-row-label::after {
     color: rgba(255, 235, 245, 0.78);
     font-size: 0.82rem;
 }
+
+.gigabuddy-demo-context,
+.gigabuddy-mentor-boundary,
+.gigabuddy-admin-surface-note {
+    margin-top: 12px;
+    padding: 11px 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.gigabuddy-demo-context span,
+.gigabuddy-mentor-boundary span,
+.gigabuddy-admin-surface-note span {
+    color: rgba(255, 255, 255, 0.58);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.gigabuddy-demo-context p,
+.gigabuddy-mentor-boundary p,
+.gigabuddy-admin-surface-note p {
+    margin: 4px 0 0;
+    color: rgba(255, 255, 255, 0.72);
+    line-height: 1.35;
+}
+
+.gigabuddy-questionnaire {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.gigabuddy-questionnaire summary {
+    cursor: pointer;
+    color: rgba(255, 235, 245, 0.78);
+}
+
+.gigabuddy-questionnaire p,
+.gigabuddy-questionnaire li {
+    color: rgba(255, 255, 255, 0.72);
+    line-height: 1.35;
+}
+
+.gigabuddy-questionnaire ul {
+    margin: 8px 0 0;
+    padding-left: 18px;
+}

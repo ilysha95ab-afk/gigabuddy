@@ -25,6 +25,7 @@ from ouroboros.config import (
     save_settings,
 )
 from ouroboros.gateway._helpers import json_error, json_exception, request_drive_root
+from ouroboros.gigabuddy_state import GigaBuddyStateError, apply_gigabuddy_action
 from ouroboros.onboarding_wizard import build_onboarding_html
 from ouroboros.platform_layer import is_container_env
 from ouroboros.server_runtime import (
@@ -460,6 +461,27 @@ def _generic_gigabuddy_settings_guard(
         if proposed != current and not _looks_masked_secret(proposed):
             return json_error("GigaBuddy admin PIN cannot be changed while product mode is active.", 403)
     return None
+
+
+def _handle_gigabuddy_action(request: Request, body: Dict[str, Any]) -> JSONResponse:
+    """Handle GigaBuddy state/action commands through the existing settings seam."""
+    try:
+        op = str((body or {}).get("op") or "").strip()
+        payload = (body or {}).get("payload") or {}
+        if not isinstance(payload, dict):
+            return json_error("GigaBuddy payload must be an object.", 400)
+        result = apply_gigabuddy_action(request_drive_root(request), op, payload)
+        _owner_audit(request, "gigabuddy", result.get("audit") or {"op": op, "result": "success"})
+        return JSONResponse({
+            "ok": True,
+            "status": "ok",
+            "state": result.get("state") or {},
+            "view": result.get("view") or {},
+        })
+    except GigaBuddyStateError as e:
+        return json_error(str(e), 400)
+    except TimeoutError as e:
+        return json_error(str(e), 503)
 
 
 def _handle_gigabuddy_return_action(request: Request, body: Dict[str, Any]) -> JSONResponse:
@@ -1001,6 +1023,8 @@ async def api_settings_post(request: Request) -> JSONResponse:
         action = str(body.get("_action") or "").strip()
         if action == "gigabuddy_return":
             return _handle_gigabuddy_return_action(request, body)
+        if action == "gigabuddy":
+            return _handle_gigabuddy_action(request, body)
         if action:
             return json_error("Unknown settings action.", 400)
         # Reject a malformed post-task evolution cadence at the API boundary: the

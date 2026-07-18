@@ -14,21 +14,22 @@ Set the owner/admin setting:
 
 Empty value means ordinary Ouroboros. For the demo, configure the mode before the novice arrives; a restart or UI reload is the safest activation path. The frontend reads `/api/settings` and applies `body.product-gigabuddy`; no frozen `/api/state` contract field is added in this first increment.
 
-## What is live in v6.71.2
+## What is live in v6.72.0
 
 - Main chat branding changes to **ГигаБадди**.
 - Subtitle appears: **персональный ИИ-наставник адаптации**.
 - Novice-facing system chrome is hidden: developer header controls, budget pill, Swarm/Low/Max composer controls, navigation utilities and Projects.
-- A separate adaptation-track sidecar appears in the main chat with synthetic demo state:
-  - employee card;
+- A separate adaptation-track sidecar appears in the main chat and loads mutable demo state from `data/state/gigabuddy/state.json`:
+  - employee card and demo profile switcher;
   - current role/stage;
   - progress;
-  - tasks;
+  - per-employee tasks;
   - next step;
   - readiness for transition;
-  - behavior-version/rollback placeholder;
-  - mentor/demo-accelerator notes.
-- Stage model is present in code: **Советчик → Помощник → Партнёр**.
+  - behavior-version / rollback model;
+  - mentor notes and bounded event history;
+  - base questionnaire/domain-package summary.
+- Stage model is present in code and state actions: **Советчик → Помощник → Партнёр**.
 - Settings exposes a Product Mode segmented control under Behavior.
 - Static tests pin that the overlay is reversible, ordinary mode remains default, `/api/state` is untouched, and `/panic` remains structurally available.
 - A visible owner/admin return form asks for a four-digit PIN and calls the existing `/api/settings` seam with `_action: "gigabuddy_return"`. The server checks `GIGABUDDY_ADMIN_PIN`, clears product mode only on a correct PIN, and keeps submitted PIN values out of responses/audit payloads.
@@ -41,12 +42,32 @@ The return PIN is a local owner/admin recovery gate for the visible GigaBuddy sh
 
 Sensitive diagnostics, such as anxiety/confidence risk, must not be shown to the novice as labels. They may inform support style internally, but outward language should describe the format of help, level of support, and work style.
 
-## What remains prototype/demo in v6.71.2
+## Mutable state and mentor/admin actions
 
-- Employee state is synthetic and static; Alice's uploaded ODT files are not parsed yet.
+The live state file is runtime-local and synthetic by default:
+
+```text
+data/state/gigabuddy/state.json
+```
+
+It is not a public demo-data source and is not committed. `ouroboros/gigabuddy_state.py` owns the schema, default profiles, bounded event history, string caps, and the novice-safe view projection. The browser calls the existing settings seam with `_action: "gigabuddy"` and a whitelisted `op`; the gateway audits only reducer-supplied metadata, never task text, mentor notes, questionnaire text, PINs, or internal diagnostic labels.
+
+Current reducer operations (available to the backend/admin/Telegram seam, not rendered as novice buttons):
+
+- `select_employee` — switch demo profile (Alice → Leonid → blank/default and back).
+- `add_task` — add a mentor task to the active employee's track.
+- `approve_stage` — confirm stage transition.
+- `reject_stage` — defer transition and optionally add another task.
+- `rollback` — restore an earlier behavior version while preserving progress/tasks.
+- `demo_accelerate` — fast-forward a demo stage with audited metadata.
+
+The employee-facing side panel is deliberately read-mostly: it shows the current profile, role, tasks, questionnaire/domain package, and soft status copy. It does **not** expose profile switching, task injection, stage approval/rejection, rollback, or demo acceleration controls. Those actions belong to the mentor/admin/Telegram surface or to the owner after returning to ordinary Ouroboros mode.
+
+## What remains prototype/demo in v6.72.0
+
+- Employee state is mutable but still seeded with synthetic demo profiles; Alice's uploaded ODT files are not parsed yet.
 - Telegram mentor commands are documented as product flow but not live-wired here.
-- Rollback is represented as behavior-version UI/model placeholder; it does not yet mutate persisted employee behavior state.
-- Background consciousness is not central to the MVP; proactive checks/digests should be deterministic/demo-controlled until the real state model exists.
+- Background consciousness is not central to the MVP; proactive checks/digests should be deterministic/demo-controlled until the real state model is fed by actual domain packs.
 
 ## Demo accelerator vocabulary
 
@@ -62,8 +83,8 @@ These must be authorized and audited when implemented live; they are not a hidde
 
 ## Next implementation increment
 
-1. Persist a real GigaBuddy employee/profile/track state model.
-2. Add mentor/admin surfaces for stage approval, task injection, and behavior rollback.
-3. Parse Alice's provided documents into demo data only after the generic shell is stable.
-4. Wire Telegram mentor protocol through a reviewed transport skill or a demo/admin panel.
-5. Replace static track data with generated diagnostic interview + track state.
+1. Add a proper mentor/admin surface for stage approval, task injection, profile switching, behavior rollback, and demo acceleration (Telegram first; a clearly separated admin panel is acceptable for filming).
+2. Parse Alice's provided documents into demo data only after the generic shell is stable.
+3. Wire Telegram mentor protocol through a reviewed transport skill or a demo/admin panel.
+4. Replace seed questionnaire text with generated diagnostic interview + domain knowledge package outputs.
+5. Prepare judge-facing README/demo script/screenshots from synthetic data only.

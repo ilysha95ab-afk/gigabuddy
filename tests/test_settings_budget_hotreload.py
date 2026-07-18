@@ -286,6 +286,51 @@ def test_masked_gigabuddy_pin_placeholder_does_not_create_secret(monkeypatch, tm
     assert "GIGABUDDY_ADMIN_PIN" not in current
 
 
+def test_gigabuddy_state_action_writes_runtime_state_not_settings(monkeypatch, tmp_path):
+    from ouroboros.config import SETTINGS_DEFAULTS as _defaults
+    from ouroboros.gigabuddy_state import STATE_RELATIVE_PATH
+
+    current = dict(_defaults)
+    current["OUROBOROS_PRODUCT_MODE"] = "gigabuddy"
+    current["GIGABUDDY_ADMIN_PIN"] = "1234"
+    before = dict(current)
+    client = _settings_client(monkeypatch, tmp_path, current)
+
+    resp = client.post("/api/settings", json={
+        "_action": "gigabuddy",
+        "op": "add_task",
+        "payload": {"title": "Секретный текст задачи не должен попадать в audit", "note": "mentor private note"},
+    })
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json().get("ok") is True
+    assert current == before
+    assert (tmp_path / "drive" / STATE_RELATIVE_PATH).is_file()
+    events = (tmp_path / "drive" / "logs" / "events.jsonl").read_text(encoding="utf-8")
+    assert "add_task" in events
+    assert "alice-demo" in events
+    assert "Секретный текст" not in events
+    assert "mentor private note" not in events
+    assert "1234" not in events
+
+
+def test_gigabuddy_state_action_rejects_unknown_op_and_settings_fields(monkeypatch, tmp_path):
+    from ouroboros.config import SETTINGS_DEFAULTS as _defaults
+
+    current = dict(_defaults)
+    client = _settings_client(monkeypatch, tmp_path, current)
+
+    unknown = client.post("/api/settings", json={"_action": "gigabuddy", "op": "bogus", "payload": {}})
+    assert unknown.status_code == 400
+
+    settings_like = client.post("/api/settings", json={
+        "_action": "gigabuddy",
+        "op": "add_task",
+        "payload": {"title": "ok", "OUROBOROS_PRODUCT_MODE": ""},
+    })
+    assert settings_like.status_code == 400
+
+
 def test_unknown_settings_action_is_not_persisted(monkeypatch, tmp_path):
     from ouroboros.config import SETTINGS_DEFAULTS as _defaults
 

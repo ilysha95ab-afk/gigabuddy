@@ -70,6 +70,7 @@ export const apiClient = {
         body: JSON.stringify(payload),
     }),
     gigaBuddyReturn: (pin) => jsonPost('/api/settings', { _action: 'gigabuddy_return', pin }, { rejectOkFalse: true }),
+    gigaBuddy: (op, payload = {}) => jsonPost('/api/settings', { _action: 'gigabuddy', op, payload }, { rejectOkFalse: true }),
     ownerRuntimeMode: (mode) => jsonPost('/api/owner/runtime-mode', { mode }),
     ownerAutoGrant: (enabled) => jsonPost('/api/owner/auto-grant', { enabled: Boolean(enabled) }),
     ownerContextMode: (mode) => jsonPost('/api/owner/context-mode', { mode }),
