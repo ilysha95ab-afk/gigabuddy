@@ -270,6 +270,106 @@ def has_questionnaire(employee_id: str) -> bool:
         return False
 
 
+_MAX_QUESTIONNAIRE_HINTS = 8
+
+
+def _extract_question_lines(text: str) -> List[str]:
+    """Pull human-facing question/prompt lines from a base-questionnaire file.
+
+    Deliberately format-tolerant (JSON list/dict, markdown bullets, or plain
+    lines): a mentor may write the base questionnaire however they like. We only
+    surface a handful of grounding prompts, so this is a lossy digest, not a
+    parser. Returns [] on anything unusable (fail-soft)."""
+    if not text or not text.strip():
+        return []
+    hints: List[str] = []
+    stripped = text.strip()
+    if stripped[:1] in ("{", "["):
+        try:
+            loaded = json.loads(stripped)
+        except (ValueError, TypeError):
+            loaded = None
+        candidates: List[Any] = []
+        if isinstance(loaded, list):
+            candidates = loaded
+        elif isinstance(loaded, dict):
+            qs = loaded.get("questions") or loaded.get("вопросы") or loaded.get("prompts")
+            if isinstance(qs, list):
+                candidates = qs
+            else:
+                candidates = [v for v in loaded.values() if isinstance(v, str)]
+        for item in candidates:
+            if isinstance(item, str) and item.strip():
+                hints.append(item.strip())
+            elif isinstance(item, dict):
+                q = item.get("question") or item.get("text") or item.get("prompt") or item.get("вопрос")
+                if isinstance(q, str) and q.strip():
+                    hints.append(q.strip())
+    if not hints:
+        for line in stripped.splitlines():
+            cleaned = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip()
+            # A prompt line: ends with '?' or is a reasonably long directive.
+            if cleaned and (cleaned.endswith("?") or len(cleaned) >= 12):
+                hints.append(cleaned)
+    # De-duplicate preserving order, clip length, bound count.
+    seen: set[str] = set()
+    result: List[str] = []
+    for hint in hints:
+        clipped = hint[:280]
+        if clipped in seen:
+            continue
+        seen.add(clipped)
+        result.append(clipped)
+        if len(result) >= _MAX_QUESTIONNAIRE_HINTS:
+            break
+    return result
+
+
+def read_questionnaire_hints(employee_id: str) -> List[str]:
+    """Return a small list of the mentor's base-questionnaire prompts (or []).
+
+    Integration point for the #5 methodology (form Б): when HR/management dropped
+    a base questionnaire into ``employees/<id>/questionnaire/``, the persona leans
+    on these real questions as the acquaintance's starting point instead of
+    improvising. Fully fail-soft and path-confined; never raises, never fabricates
+    (a missing/empty/unparseable folder yields [])."""
+    root = employees_root()
+    qdir = employee_dir(employee_id) / "questionnaire"
+    if not _is_confined(qdir, root):
+        return []
+    try:
+        if not qdir.is_dir():
+            return []
+        files = sorted(
+            (p for p in qdir.iterdir()
+             if p.is_file() and p.suffix.lower() in _PROFILE_EXTS),
+            key=lambda p: (p.suffix.lower() != ".json", p.name.lower()),
+        )
+    except OSError:
+        return []
+    hints: List[str] = []
+    for path in files:
+        if not _is_confined(path, root):
+            continue
+        text = _read_text_capped(path)
+        if text is None:
+            continue
+        hints.extend(_extract_question_lines(text))
+        if len(hints) >= _MAX_QUESTIONNAIRE_HINTS:
+            break
+    # Final de-dupe + bound across files.
+    seen: set[str] = set()
+    result: List[str] = []
+    for hint in hints:
+        if hint in seen:
+            continue
+        seen.add(hint)
+        result.append(hint)
+        if len(result) >= _MAX_QUESTIONNAIRE_HINTS:
+            break
+    return result
+
+
 def knowledge_dir_exists(employee_id: str) -> bool:
     """Whether the employee's department knowledge base folder exists (integration
     point for the #4 Karpathy-wiki retrieval skill)."""

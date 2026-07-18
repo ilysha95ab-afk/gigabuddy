@@ -1119,6 +1119,60 @@ _TONE_GUIDANCE = {
     "playful": "лёгкий, тёплый тон на «ты», можно с уместной живостью и эмодзи",
 }
 
+# --- #5 Adaptation methodology (form Б: embedded in the persona/core) ---------
+# The explicit onboarding methodology the acquaintance follows so the chat builds
+# a REAL track by rules, not improvisation. Grounded in two world practices —
+# the 30-60-90-day arc and competency-based adaptation — but kept "с душой":
+# personal and warm, adapted to the newcomer's profile/tone, never a dry
+# template. This is prompt-as-code (P7): stated once, compactly.
+_METHODOLOGY_GUIDANCE = (
+    "### Методология построения адаптационного трека (следуй ей осмысленно, «с душой»)\n"
+    "Строй трек по двум мировым практикам онбординга — не как сухой шаблон, а живо и "
+    "персонально под этого человека (его роль, опыт, интересы и твой тон общения):\n"
+    "1. **Арка 30-60-90 дней** — три фазы адаптации:\n"
+    "   - Первые ~30 дней: освоиться — познакомиться с процессами, людьми, инструментами, "
+    "контекстом роли; много опоры и безопасных шагов.\n"
+    "   - ~60 дней: начать давать вклад под поддержкой — реальные задачи с подстраховкой, "
+    "разбор ошибок без давления.\n"
+    "   - ~90 дней: самостоятельность и владение — уверенная работа, ответственность за "
+    "результат, вопросы уже точечные.\n"
+    "2. **Адаптация по компетенциям** — от компетенций роли/отдела к целям и конкретным "
+    "шагам: определи, какие 2-4 ключевые компетенции нужны на этой позиции, и наполни фазы "
+    "шагами, которые их развивают.\n"
+    "Синтез: 2-3 крупные фазы (по арке 30-60-90) с конкретными шагами внутри (по "
+    "компетенциям роли). Глубину, темп и формулировки адаптируй под профиль и опыт "
+    "новичка — опытному дай меньше опеки и больше challenge, начинающему — больше примеров "
+    "и совместного разбора. НЕ выдумывай факты о компании/отделе, которых нет; шаги строй "
+    "из ответов новичка и из того, что реально известно.\n"
+    "Чувствительные наблюдения (уровень тревожности, автономности, стиль обучения) держи "
+    "ВНУТРИ себя — используй их, чтобы подобрать формат поддержки, но НЕ проговаривай "
+    "новичку как ярлыки.\n"
+)
+
+
+def _methodology_block(has_base_questionnaire: bool, questionnaire_hints: list[str]) -> str:
+    """Compact methodology guidance for the acquaintance scenario.
+
+    When the mentor placed a base questionnaire, lean on its real prompts as the
+    starting point; otherwise follow the default 30-60-90 / competency scenario.
+    Kept out of ``build_gigabuddy_persona`` so that function stays within the
+    size budget (P7)."""
+    if has_base_questionnaire and questionnaire_hints:
+        hint_lines = "\n".join(f"  - {h}" for h in questionnaire_hints)
+        base = (
+            "Наставник/HR уже приложил базовый опросник в папке сотрудника — обопрись на эти "
+            "вопросы как на отправную точку и дополни их своими тёплыми, человечными:\n"
+            f"{hint_lines}\n\n"
+        )
+    elif has_base_questionnaire:
+        base = (
+            "Наставник/HR приложил базовый опросник в папке сотрудника — обопрись на него как "
+            "на отправную точку, дополнив своими тёплыми вопросами.\n\n"
+        )
+    else:
+        base = ""
+    return base + _METHODOLOGY_GUIDANCE
+
 
 def build_gigabuddy_persona(drive_root: pathlib.Path | str) -> str:
     """Return the product-mode ГигаБадди role-contract for the novice thread.
@@ -1174,14 +1228,20 @@ def build_gigabuddy_persona(drive_root: pathlib.Path | str) -> str:
 
     knowledge_dir = novice_knowledge_dir(employee.get("id") or "")
     # #5 integration point: if HR/management placed a base questionnaire in the
-    # employee folder, lean on it during the acquaintance scenario. Fail-soft.
+    # employee folder, lean on its REAL prompts during the acquaintance scenario.
+    # Fail-soft: any read error yields no questionnaire grounding, not a break.
     has_base_questionnaire = False
+    questionnaire_hints: list[str] = []
     try:
         from ouroboros import gigabuddy_profile as _gp
 
-        has_base_questionnaire = _gp.has_questionnaire(employee.get("id") or "")
+        emp_id = employee.get("id") or ""
+        has_base_questionnaire = _gp.has_questionnaire(emp_id)
+        if has_base_questionnaire:
+            questionnaire_hints = _gp.read_questionnaire_hints(emp_id)
     except Exception:
         has_base_questionnaire = False
+        questionnaire_hints = []
 
     if has_name:
         profile_bits = [f"Имя: {name}"]
@@ -1205,36 +1265,33 @@ def build_gigabuddy_persona(drive_root: pathlib.Path | str) -> str:
             f"Поприветствуй {name} по имени" if has_name
             else "Тепло поздоровайся и спроси, как к сотруднику обращаться"
         )
-        base_q_hint = (
-            "Наставник уже приложил базовый опросник от управления/HR в папке сотрудника — "
-            "обопрись на него как на отправную точку, дополнив своими тёплыми вопросами.\n"
-            if has_base_questionnaire else ""
-        )
+        methodology_block = _methodology_block(has_base_questionnaire, questionnaire_hints)
         scenario_block = (
             "### Сценарий первого знакомства (трек ещё пуст — построй его)\n"
             f"Сейчас у сотрудника ещё НЕТ адаптационного трека. Твоя задача — провести короткое, "
-            "живое знакомство и по его итогам построить персональный трек адаптации.\n"
+            "живое знакомство и по его итогам построить персональный трек адаптации по методологии "
+            "ниже.\n"
             f"1. {greet}, представься как ГигаБадди — персональный наставник адаптации, и предложи "
             "пройти короткое знакомство, чтобы вместе определить его трек адаптации.\n"
-            f"{base_q_hint}"
             "2. Задай несколько тёплых, человечных вопросов (не сухой чек-лист): что уже понятно в "
             "новой роли, а что кажется самым непонятным; какой формат помощи ему ближе (пример, "
-            "чек-лист, схема, совместный разбор); что важно освоить в первую очередь. Опирайся на "
-            "разумные мировые практики онбординга (30-60-90 дней, адаптация по компетенциям), но "
-            "веди разговор с душой и персонально, а не по шаблону.\n"
-            "3. По итогам знакомства построй персональный адаптационный трек: 2-3 крупные фазы с "
-            "понятными названиями и конкретными шагами внутри каждой (это НЕ роли Советчик→Партнёр — "
-            "это этапы адаптации именно этого человека).\n"
+            "чек-лист, схема, совместный разбор); что важно освоить в первую очередь; чем он "
+            "увлекается (чтобы говорить на его языке).\n"
+            "3. По итогам знакомства построй персональный адаптационный трек по методологии ниже: "
+            "2-3 крупные фазы с понятными названиями и конкретными шагами внутри каждой (это НЕ "
+            "роли Советчик→Партнёр — это этапы адаптации именно этого человека).\n"
             "4. Прогресс адаптации сохраняется в долговременной памяти проекта (в персистентном "
             "состоянии сотрудника), а не только в переписке — так ты не забудешь стадию новичка даже "
             "спустя недели. Продвижение по этапам фиксируй по мере того, как сотрудник их проходит.\n\n"
+            f"{methodology_block}\n"
         )
     else:
         scenario_block = (
             "### Как вести адаптацию дальше\n"
-            "Трек уже построен. Веди сотрудника по его этапам сообразно текущей стадии, помогай "
-            "проходить шаги, и фиксируй пройденные этапы в долговременной памяти проекта, чтобы "
-            "прогресс сохранялся между сессиями.\n\n"
+            "Трек уже построен по методологии 30-60-90 / компетенций. Веди сотрудника по его "
+            "этапам сообразно текущей стадии, помогай проходить шаги, при необходимости "
+            "перестраивай трек по той же методологии, и фиксируй пройденные этапы в долговременной "
+            "памяти проекта, чтобы прогресс сохранялся между сессиями.\n\n"
         )
 
     stage_bits = []

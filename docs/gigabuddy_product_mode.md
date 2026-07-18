@@ -301,9 +301,42 @@ Durable reducer ops added: `load_profile` (file → demo → neutral precedence)
 `set_track` (questionnaire writes stages/steps), `record_progress` (mark a stage
 done and recompute progress). All are view-pure at the projection boundary and
 respect the novice-safe view (`internal_signals` / mentor notes / rollback
-history never leak). The methodology of the questionnaire is an embedded scenario
-for now; extracting it into a dedicated skill (#5) and building the knowledge
-retrieval wiki (#4) remain the next separate works.
+history never leak). The methodology of the questionnaire is now an **explicit,
+embedded methodology** (see below); building the knowledge retrieval wiki (#4)
+remains the next separate work.
+
+## Adaptation-track methodology (C / #5, v6.80.0 — embedded in the persona, form Б)
+
+The chat questionnaire now builds the track by an **explicit methodology** rather
+than improvisation. Per the owner's decision it is embedded directly in the
+persona/core (`ouroboros/gigabuddy_state.py`), **not** a separate reviewed
+external skill — on this machine `ANTHROPIC_API_KEY` is unset, so a real external
+skill would never pass the skill-review gate and become executable, and the
+methodology is tightly coupled to the persona already in core.
+
+- **Where it lives:** a module-level `_METHODOLOGY_GUIDANCE` constant (kept out of
+  `build_gigabuddy_persona` so that function stays within the size budget, P7 —
+  prompts are code), assembled by `_methodology_block(has_base_questionnaire,
+  questionnaire_hints)` and injected into the empty-track acquaintance scenario.
+- **Two world practices, applied "с душой":**
+  1. **30-60-90-day arc** — three phases: ~30 days settle in / meet people &
+     processes; ~60 days contribute under support; ~90 days autonomy & ownership.
+  2. **Competency-based adaptation** — role/department competencies → goals →
+     concrete steps. The synthesis is 2-3 phases (30-60-90) with per-phase steps
+     (competencies). Depth, pace, and wording adapt to the newcomer's profile,
+     experience, interests, and interface tone — creative and personal, never a
+     dry template.
+- **Leans on the mentor's base questionnaire when present:** if HR/management
+  placed a questionnaire in `employees/<id>/questionnaire/`,
+  `gigabuddy_profile.read_questionnaire_hints(<id>)` surfaces a bounded, fail-soft,
+  folder-confined digest of its real prompts, and the persona uses them as the
+  acquaintance's starting point (then adds its own warm questions). No
+  questionnaire → the default 30-60-90 / competency scenario, and the persona
+  does **not** claim a questionnaire it does not have (no fabrication).
+- **Novice-safe:** sensitive observations (anxiety level, autonomy, learning
+  style) are used INTERNALLY to pick the support format but are never spoken to
+  the newcomer as labels; `internal_signals` / mentor notes / rollback history
+  still never reach the persona (pinned by tests).
 
 ## Next implementation increment
 
