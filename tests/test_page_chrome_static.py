@@ -312,6 +312,45 @@ def test_gigabuddy_three_column_layout_and_novice_thread(tmp_path=None):
     assert "data-gigabuddy-return-form" in gigabuddy
 
 
+def test_gigabuddy_left_adaptation_track_is_live_and_expandable():
+    """B2 (v6.78.0): the LEFT slot renders the employee's live adaptation track
+    (stages/steps from view.track, NOT the advisor->partner role status), each
+    stage an expandable <details>, with a neutral placeholder on an empty track,
+    fed from the single get_state fetch owner, accent via the CSS variable."""
+    gigabuddy = _read("web/modules/gigabuddy.js")
+    css = _read("web/style.css")
+
+    # --- gigabuddy.js: the live left-track renderer exists and reads view.track.
+    assert "renderGigaBuddyLeftTrack" in gigabuddy
+    left_start = gigabuddy.index("function renderGigaBuddyLeftTrack")
+    left_end = gigabuddy.index("\n}", left_start)
+    left = gigabuddy[left_start:left_end]
+    # Reads the live track (not static) and derives progress from it.
+    assert "state.track" in left
+    # Expandable stages the newcomer can "dive into".
+    assert "<details" in left and "<summary>" in left
+    # Neutral placeholder on an empty track — stages are never fabricated here.
+    assert "gigabuddy-track-empty" in left
+    # Per-stage steps rendered when present; a neutral hint when empty (B3/C fills).
+    assert "item.steps" in left
+    assert "gigabuddy-track-steps" in left
+    # Content is escaped (no raw interpolation of employee-supplied strings).
+    assert "escapeHtml(" in left
+
+    # --- wired into the single get_state fetch owner, into the left slot only.
+    refresh_start = gigabuddy.index("function refreshGigaBuddyPanel")
+    refresh = gigabuddy[refresh_start:refresh_start + 900]
+    assert "data-gigabuddy-track-slot" in refresh
+    assert "renderGigaBuddyLeftTrack(view)" in refresh
+
+    # --- CSS: the animated left track styling exists and follows the accent var;
+    # no NEW inline styles are introduced in the renderer (CSS-only).
+    assert ".gigabuddy-track-stage {" in css
+    assert ".gigabuddy-track-stages {" in css or ".gigabuddy-track-stage[" in css
+    assert "--gigabuddy-accent" in css
+    assert ".style." not in left  # renderer emits classes/markup, not inline styles
+
+
 def test_server_navigation_and_chat_static_contracts():
     server_source = _read("server.py")
     state_source = _read("ouroboros/gateway/state.py")

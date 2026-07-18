@@ -153,6 +153,59 @@ function renderEvents(state) {
     return events.map((event) => `<li>${escapeHtml(event.detail || event.op || '')}</li>`).join('');
 }
 
+const TRACK_STATUS_LABEL = { done: 'Пройдено', active: 'Сейчас', planned: 'Впереди' };
+const TRACK_STATUS_GLYPH = { done: '✓', active: '●', planned: '○' };
+
+/**
+ * Render the LEFT adaptation-track column (B2). This shows the EMPLOYEE'S
+ * onboarding stages/steps from the live `track` state — NOT the advisor→partner
+ * role status (that stays in the right panel). Each stage is an expandable
+ * <details> so the newcomer can "dive into" a stage and see its concrete steps.
+ * When a stage has no steps yet (questionnaire is B3/C), it shows a neutral hint
+ * rather than fabricating content. An empty track shows a neutral placeholder.
+ */
+export function renderGigaBuddyLeftTrack(view = GIGABUDDY_DEMO_STATE) {
+    const state = normalizeView(view);
+    const track = Array.isArray(state.track) ? state.track : [];
+    const doneCount = track.filter((item) => item.status === 'done').length;
+    if (!track.length) {
+        return `
+            <div class="gigabuddy-track-slot-head">Адаптационный трек</div>
+            <div class="gigabuddy-track-empty">
+                <span class="gigabuddy-track-empty-glyph" aria-hidden="true">🧭</span>
+                <p>Твой персональный трек появится здесь после короткого знакомства — этапы наполнятся под твою роль.</p>
+            </div>
+        `;
+    }
+    const stages = track.map((item, index) => {
+        const status = ['done', 'active', 'planned'].includes(item.status) ? item.status : 'planned';
+        const steps = Array.isArray(item.steps) ? item.steps : [];
+        const open = status === 'active' ? ' open' : '';
+        const stepsHtml = steps.length
+            ? `<ul class="gigabuddy-track-steps">${steps.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}</ul>`
+            : `<p class="gigabuddy-track-steps-empty">Шаги этого этапа появятся, когда мы уточним твой трек.</p>`;
+        return `
+            <details class="gigabuddy-track-stage" data-status="${status}"${open}>
+                <summary>
+                    <span class="gigabuddy-track-index" aria-hidden="true">${TRACK_STATUS_GLYPH[status]}</span>
+                    <span class="gigabuddy-track-stage-main">
+                        <span class="gigabuddy-track-stage-title">${escapeHtml(item.title || item.label || `Этап ${index + 1}`)}</span>
+                        <span class="gigabuddy-track-stage-status">${escapeHtml(TRACK_STATUS_LABEL[status])}</span>
+                    </span>
+                </summary>
+                <div class="gigabuddy-track-stage-body">${stepsHtml}</div>
+            </details>
+        `;
+    }).join('');
+    return `
+        <div class="gigabuddy-track-slot-head">
+            <span>Адаптационный трек</span>
+            <span class="gigabuddy-track-progress-badge">${doneCount}/${track.length}</span>
+        </div>
+        <div class="gigabuddy-track-stages">${stages}</div>
+    `;
+}
+
 export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
     const state = normalizeView(view);
     const employee = state.employee || {};
@@ -232,6 +285,10 @@ export async function refreshGigaBuddyPanel(root = document) {
     const result = await apiClient.gigaBuddy('get_state');
     const view = result.view || GIGABUDDY_DEMO_STATE;
     panel.outerHTML = renderGigaBuddyTrackPanel(view);
+    // B2: render the LEFT adaptation-track column from the SAME live view (single
+    // get_state fetch owner). The role status stays in the right panel above.
+    const trackSlot = root.querySelector('[data-gigabuddy-track-slot]');
+    if (trackSlot) trackSlot.innerHTML = renderGigaBuddyLeftTrack(view);
     applyGigaBuddyInterface(normalizeView(view).interface, root);
     // This is the SINGLE get_state fetch owner: from the same view, publish the
     // novice-thread descriptor so app.js can mount the isolated center chat.

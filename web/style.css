@@ -5833,14 +5833,192 @@ body.product-gigabuddy #page-chat > #chat-input-area {
 }
 
 .gigabuddy-track-slot-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     font-size: 13px;
     font-weight: 600;
     letter-spacing: 0.02em;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
     color: rgba(255, 235, 245, 0.92);
 }
 
 .gigabuddy-track-slot-body {
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(255, 235, 245, 0.6);
+}
+
+/* B2: animated, expandable adaptation track (left column). Each stage is a
+   <details> the newcomer can "dive into". Accent uses --gigabuddy-accent so a
+   per-employee interface config re-colors it consistently with the right panel. */
+.gigabuddy-track-progress-badge {
+    flex: 0 0 auto;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--gigabuddy-accent, #e85d6f);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gigabuddy-track-stages {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.gigabuddy-track-stage {
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.035);
+    overflow: hidden;
+    transition: border-color 180ms ease, background 180ms ease;
+}
+
+.gigabuddy-track-stage[data-status="active"] {
+    border-color: color-mix(in srgb, var(--gigabuddy-accent, #e85d6f) 55%, transparent);
+    background: color-mix(in srgb, var(--gigabuddy-accent, #e85d6f) 10%, rgba(255, 255, 255, 0.03));
+}
+
+.gigabuddy-track-stage[data-status="done"] {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.gigabuddy-track-stage > summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 12px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.gigabuddy-track-stage > summary::-webkit-details-marker {
+    display: none;
+}
+
+.gigabuddy-track-index {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(255, 235, 245, 0.72);
+}
+
+.gigabuddy-track-stage[data-status="active"] .gigabuddy-track-index {
+    background: color-mix(in srgb, var(--gigabuddy-accent, #e85d6f) 30%, rgba(255, 255, 255, 0.07));
+    color: #fff;
+}
+
+.gigabuddy-track-stage[data-status="done"] .gigabuddy-track-index {
+    color: #9be7b0;
+}
+
+.gigabuddy-track-stage-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.gigabuddy-track-stage-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: rgba(255, 235, 245, 0.92);
+}
+
+.gigabuddy-track-stage-status {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 235, 245, 0.5);
+}
+
+.gigabuddy-track-stage > summary::after {
+    content: '▸';
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: rgba(255, 235, 245, 0.5);
+    transition: transform 180ms ease;
+}
+
+.gigabuddy-track-stage[open] > summary::after {
+    transform: rotate(90deg);
+}
+
+.gigabuddy-track-stage-body {
+    padding: 0 12px 12px 44px;
+    animation: gigabuddy-track-reveal 200ms ease;
+}
+
+@keyframes gigabuddy-track-reveal {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.gigabuddy-track-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.gigabuddy-track-steps li {
+    position: relative;
+    padding-left: 14px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: rgba(255, 235, 245, 0.74);
+}
+
+.gigabuddy-track-steps li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 7px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--gigabuddy-accent, #e85d6f);
+}
+
+.gigabuddy-track-steps-empty {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: rgba(255, 235, 245, 0.5);
+}
+
+.gigabuddy-track-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 22px 12px;
+    text-align: center;
+}
+
+.gigabuddy-track-empty-glyph {
+    font-size: 26px;
+    opacity: 0.85;
+}
+
+.gigabuddy-track-empty p {
+    margin: 0;
     font-size: 12px;
     line-height: 1.5;
     color: rgba(255, 235, 245, 0.6);

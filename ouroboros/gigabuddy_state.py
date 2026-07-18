@@ -44,6 +44,7 @@ MAX_TASKS_PER_EMPLOYEE = 24
 MAX_MENTOR_NOTES = 12
 MAX_BEHAVIOR_VERSIONS = 8
 MAX_TRACK_STAGES = 12
+MAX_TRACK_STEPS = 12
 MAX_ROLLBACK_HISTORY = 16
 MAX_INTERESTS = 8
 MAX_LAYOUT_SECTIONS = 16
@@ -193,7 +194,17 @@ def _normalize_profile(raw: Any, fallback: Dict[str, Any], emp: Dict[str, Any]) 
     }
 
 
-def _track_stage(stage_id: str, title: str, status: str = "planned") -> Dict[str, Any]:
+def _normalize_track_steps(raw: Any) -> list[str]:
+    """Normalize a track stage's expandable onboarding steps (B2). Steps are the
+    employee's concrete adaptation actions for this stage; the questionnaire that
+    fills them lands in B3/C, so this is empty by default and never fabricated."""
+    if not isinstance(raw, list):
+        return []
+    steps = [_clip(item, MAX_TEXT_CHARS) for item in raw if _clip(item, MAX_TEXT_CHARS)]
+    return steps[:MAX_TRACK_STEPS]
+
+
+def _track_stage(stage_id: str, title: str, status: str = "planned", steps: Any = None) -> Dict[str, Any]:
     sid = _stage(stage_id)
     st = _clip(status, 32) or "planned"
     if st not in {"planned", "active", "done"}:
@@ -203,6 +214,7 @@ def _track_stage(stage_id: str, title: str, status: str = "planned") -> Dict[str
         "label": STAGE_LABELS[sid],
         "title": _clip(title) or STAGE_LABELS[sid],
         "status": st,
+        "steps": _normalize_track_steps(steps),
     }
 
 
@@ -237,7 +249,12 @@ def _normalize_track(raw: Any, fallback_stage: str) -> list[Dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         normalized.append(
-            _track_stage(item.get("id"), item.get("title"), _clip(item.get("status"), 32) or "planned")
+            _track_stage(
+                item.get("id"),
+                item.get("title"),
+                _clip(item.get("status"), 32) or "planned",
+                item.get("steps"),
+            )
         )
     return normalized or _default_track(fallback_stage)
 
@@ -622,7 +639,13 @@ def build_gigabuddy_view(state: Dict[str, Any]) -> Dict[str, Any]:
             "layout": list(interface.get("layout", list(LAYOUT_SECTIONS))),
         },
         "track": [
-            {"id": item.get("id", ""), "label": item.get("label", ""), "title": item.get("title", ""), "status": item.get("status", "planned")}
+            {
+                "id": item.get("id", ""),
+                "label": item.get("label", ""),
+                "title": item.get("title", ""),
+                "status": item.get("status", "planned"),
+                "steps": list(item.get("steps", []))[:MAX_TRACK_STEPS],
+            }
             for item in track
         ],
         "stage": {

@@ -39,9 +39,18 @@ Empty value means ordinary Ouroboros. For the demo, configure the mode before th
 In product mode the main chat becomes one cohesive three-column layout (not a
 panel floating over the developer chat):
 
-- **Left — adaptation-track skeleton.** A static container (`[data-gigabuddy-track-slot]`)
-  reserved for the future animated, "diveable" track (B2). It renders a
-  placeholder in B1; no live data fetch.
+- **Left — the live adaptation track (B2, v6.78.0).** The container
+  (`[data-gigabuddy-track-slot]`) renders the employee's own adaptation track
+  from the live `view.track` state — the newcomer's onboarding stages/steps,
+  NOT the Советчик→Помощник→Партнёр role status (that stays in the RIGHT panel).
+  Each stage is an expandable `<details>` the newcomer can "dive into" to see its
+  concrete steps (the active stage is open by default; a done/N badge shows
+  aggregate progress; the accent follows `--gigabuddy-accent`). It is rendered by
+  `refreshGigaBuddyPanel` (the single `get_state` fetch owner) from the same view,
+  so there is no second fetch. A stage with no steps yet shows a neutral hint; an
+  empty track shows a neutral placeholder — stages are never fabricated (the
+  questionnaire that fills `steps` is B3/C). Before the first fetch the static
+  skeleton in `chat.js` shows a neutral loading line.
 - **Center — the novice's clean chat.** This is where the novice types. It is a
   separate chat thread from the developer's main Ouroboros chat.
 - **Right — the decluttered adaptation panel** (`[data-gigabuddy-track-panel]`),
@@ -106,9 +115,11 @@ Employee state (per employee):
 - `profile` — `name`, `role`, `department`, `experience`, `interests[]` (bounded).
 - `stage` — current mentorship stage (`advisor` / `assistant` / `partner`).
 - `track` — the adaptation track: an ordered list of stage entries
-  (`id`, `label`, `title`, `status` ∈ `planned` / `active` / `done`) built for
-  this specific newcomer. Progress is derived from the track (done = full,
-  active = half).
+  (`id`, `label`, `title`, `status` ∈ `planned` / `active` / `done`, and an
+  optional bounded `steps[]` — the stage's concrete onboarding steps, rendered as
+  the expandable detail in the LEFT track column, empty by default until the B3/C
+  questionnaire fills them) built for this specific newcomer. Progress is derived
+  from the track (done = full, active = half).
 - `progress_pct` — aggregated track progress metric.
 - `behavior_versions` + `active_behavior_version_id` — behavior version model.
 - `rollback_history` — internal record of behavior rollbacks (kept out of the
@@ -218,9 +229,14 @@ that thread.
   thread never breaks. No frozen contracts (`contracts.py`/`StateResponse`/
   routes) or `BIBLE.md` are touched.
 
-**Next (B2):** the LEFT column will render the employee's animated *adaptation
-track* (their onboarding stages/steps), not the Советчик→Помощник→Партнёр role
-status — the role status remains on the RIGHT.
+**B2 (v6.78.0, done):** the LEFT column renders the employee's animated
+*adaptation track* (their onboarding stages/steps) — expandable, live from
+`view.track`, with a per-stage `steps[]` detail — not the
+Советчик→Помощник→Партнёр role status, which remains on the RIGHT.
+
+**Next (B3/C):** the in-chat onboarding questionnaire that fills the track's
+`steps`, the Karpathy-wiki knowledge retrieval skill, and the questionnaire /
+adaptation-methodology skill.
 
 ## Next implementation increment
 

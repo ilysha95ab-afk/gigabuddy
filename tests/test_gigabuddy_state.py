@@ -79,6 +79,29 @@ def test_gigabuddy_view_exposes_profile_interface_and_track(tmp_path):
     # Adaptation track keyed to the current stage.
     stages = {item["id"]: item["status"] for item in view["track"]}
     assert stages == {"advisor": "active", "assistant": "planned", "partner": "planned"}
+    # B2: every track item carries a view-pure `steps` list (empty by default,
+    # never fabricated — the questionnaire that fills it is B3/C).
+    for item in view["track"]:
+        assert isinstance(item["steps"], list)
+        assert item["steps"] == []
+
+
+def test_gigabuddy_view_track_projects_bounded_steps(tmp_path):
+    # B2: when a stage carries onboarding steps, the view projects them (bounded,
+    # view-pure). This is the LEFT adaptation-track detail the newcomer expands.
+    state = default_gigabuddy_state()
+    steps = [f"Шаг {i}" for i in range(30)]  # exceeds MAX_TRACK_STEPS on purpose
+    state["employees"]["alice-demo"]["track"] = [
+        {"id": "advisor", "label": "Знакомство", "title": "Старт", "status": "active", "steps": steps},
+    ]
+    view = build_gigabuddy_view(state)
+    projected = view["track"][0]["steps"]
+    assert projected[:3] == ["Шаг 0", "Шаг 1", "Шаг 2"]
+    assert 0 < len(projected) <= 12  # MAX_TRACK_STEPS
+    # Steps stay out of any sensitive projection; view is still novice-safe.
+    dumped = json.dumps(view, ensure_ascii=False)
+    assert "internal_signals" not in dumped
+    assert "mentorNotes" not in dumped
 
 
 def test_gigabuddy_invalid_interface_falls_back_to_design_system(tmp_path):
