@@ -1339,6 +1339,21 @@ def _capture_context_core(
 
     health_section = build_health_invariants(env)
     dynamic_parts = []
+    # Product-mode ГигаБадди role-contract: ONLY for the novice thread and ONLY
+    # when product mode is gigabuddy. Placed first among the dynamic parts so the
+    # persona/boundary reads as a strong behavioral instruction. Ordinary Ouroboros
+    # (product off) and the developer's own chat get "" — no behavior change. It is
+    # dynamic (reads live per-employee state), not part of the cached governance
+    # prefix. Fail-soft inside the helper (BIBLE P1: a role overlay, not memory
+    # isolation).
+    try:
+        from ouroboros.gigabuddy_state import gigabuddy_persona_section
+
+        persona = gigabuddy_persona_section(task, env.drive_root)
+        if persona:
+            dynamic_parts.append(persona)
+    except Exception:
+        log.debug("Failed to build GigaBuddy persona section", exc_info=True)
     if health_section:
         dynamic_parts.append(health_section)
     dynamic_parts.extend(build_memory_sections(memory, partition="volatile"))

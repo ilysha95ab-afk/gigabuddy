@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import pathlib
 import re
 import time
@@ -880,3 +881,155 @@ def ensure_novice_project(drive_root: pathlib.Path | str) -> Dict[str, Any]:
             "GigaBuddy novice project unavailable (%s): %s", NOVICE_PROJECT_ID, exc
         )
         return {"chat_id": 0, "project_id": ""}
+
+
+# --- B1 role-contract / persona (product-mode novice thread only) ------------
+
+# Where a mentor drops the newcomer's first-source documents (profile /
+# questionnaire / department knowledge base). B3/C will build the retrieval skill
+# over knowledge/; here the persona only names the path so it never invents facts.
+def novice_knowledge_dir(employee_id: str) -> pathlib.Path:
+    """Absolute path to the active employee's first-source knowledge folder.
+
+    ``~/Ouroboros/gigabuddy/employees/<id>/knowledge/`` — the owner-facing tree a
+    mentor populates before the demo. This is a location contract only; the
+    retrieval skill (Karpathy-wiki, B3/C) is not built here.
+    """
+    home = pathlib.Path(os.path.expanduser("~"))
+    slug = _slug(employee_id, "unknown")
+    return home / "Ouroboros" / "gigabuddy" / "employees" / slug / "knowledge"
+
+
+def _product_mode_is_gigabuddy() -> bool:
+    return os.environ.get("OUROBOROS_PRODUCT_MODE", "").strip().lower() == "gigabuddy"
+
+
+_TONE_GUIDANCE = {
+    "formal": "деловой, уважительный тон на «вы», без фамильярности",
+    "friendly": "тёплый дружелюбный тон на «ты», ободряющий и спокойный",
+    "playful": "лёгкий, тёплый тон на «ты», можно с уместной живостью и эмодзи",
+}
+
+
+def build_gigabuddy_persona(drive_root: pathlib.Path | str) -> str:
+    """Return the product-mode ГигаБадди role-contract for the novice thread.
+
+    A system-context section that turns the ONE Ouroboros identity into the
+    mentor persona for the newcomer's thread: personalized from the persistent
+    per-employee state (profile / stage / adaptation track / interface tone) with
+    a HARD boundary against leaking Ouroboros internals, plus the knowledge-folder
+    integration point (retrieval itself is B3/C). Read-only over the novice-safe
+    view (``build_gigabuddy_view`` already excludes internal_signals / mentor
+    notes / rollback history), so nothing sensitive reaches the persona. This is a
+    role overlay on ONE unified awareness (BIBLE P1), NOT memory isolation.
+
+    Returns "" on any failure so the novice thread never breaks — it simply falls
+    back to ordinary behavior rather than losing the chat.
+    """
+    try:
+        state = load_gigabuddy_state(drive_root)
+        view = build_gigabuddy_view(state)
+    except Exception:
+        log.warning("GigaBuddy persona unavailable; skipping injection", exc_info=True)
+        return ""
+
+    profile = view.get("profile") or {}
+    interface = view.get("interface") or {}
+    stage = view.get("stage") or {}
+    employee = view.get("employee") or {}
+    track = view.get("track") or []
+
+    name = str(profile.get("name") or employee.get("name") or "новичок").strip()
+    role = str(profile.get("role") or "").strip()
+    department = str(profile.get("department") or "").strip()
+    experience = str(profile.get("experience") or "").strip()
+    interests = [str(i).strip() for i in (profile.get("interests") or []) if str(i).strip()]
+    tone = str(interface.get("tone") or "friendly").strip().lower()
+    tone_line = _TONE_GUIDANCE.get(tone, _TONE_GUIDANCE["friendly"])
+    stage_label = str(stage.get("label") or "").strip()
+    help_level = str(stage.get("helpLevel") or "").strip()
+    progress_pct = view.get("progressPct")
+
+    track_lines = []
+    for item in track:
+        label = str(item.get("label") or "").strip()
+        title = str(item.get("title") or "").strip()
+        status = str(item.get("status") or "planned").strip()
+        status_ru = {"done": "пройдено", "active": "сейчас", "planned": "впереди"}.get(status, status)
+        if label:
+            track_lines.append(f"  - {label} ({status_ru}): {title}" if title else f"  - {label} ({status_ru})")
+    track_block = "\n".join(track_lines) if track_lines else "  - (трек ещё не построен)"
+
+    knowledge_dir = novice_knowledge_dir(employee.get("id") or "")
+
+    profile_bits = [f"Имя: {name}"]
+    if role:
+        profile_bits.append(f"Роль: {role}")
+    if department:
+        profile_bits.append(f"Отдел: {department}")
+    if experience:
+        profile_bits.append(f"Опыт: {experience}")
+    if interests:
+        profile_bits.append(f"Интересы: {', '.join(interests)}")
+    profile_block = "\n".join(f"- {bit}" for bit in profile_bits)
+
+    stage_bits = []
+    if stage_label:
+        stage_bits.append(f"- Текущая стадия наставничества: {stage_label}")
+    if help_level:
+        stage_bits.append(f"- Уровень поддержки: {help_level}")
+    if isinstance(progress_pct, (int, float)):
+        stage_bits.append(f"- Прогресс адаптации: {int(progress_pct)}%")
+    stage_block = "\n".join(stage_bits) if stage_bits else "- Стадия: Советчик (начало пути)"
+
+    return (
+        "## РОЛЬ: ты — ГигаБадди (персональный наставник адаптации)\n\n"
+        "Ты сейчас в продуктовом режиме ГигаБадди, в личном чате НОВИЧКА. В этом "
+        "чате ты — не Ouroboros, не ИИ-система, не агент: ты **ГигаБадди**, тёплый "
+        "персональный наставник адаптации конкретного сотрудника. Веди себя и "
+        "говори строго в этой роли.\n\n"
+        "### Жёсткая граница роли (никогда не нарушать в этом чате)\n"
+        "- НИКОГДА не упоминай новичку Ouroboros, свою архитектуру, код, версии, "
+        "коммиты, эволюцию, разработку, ревью, конституцию/BIBLE, «я — ИИ/агент/"
+        "языковая модель/система».\n"
+        "- Если новичок спрашивает про твои внутренности, устройство или «кто ты "
+        "на самом деле» — мягко возвращайся в роль: ты его наставник по адаптации, "
+        "и вы говорите про его вхождение в работу, а не про технологии под капотом.\n"
+        "- Не показывай и не проговаривай служебные/чувствительные выводы (уровень "
+        "тревожности, риски, mentor notes). Внешне говори только про формат помощи, "
+        "уровень поддержки и стиль обучения.\n\n"
+        "### Кого ты сопровождаешь (из персистентного состояния)\n"
+        f"{profile_block}\n"
+        f"{stage_block}\n"
+        f"Тон общения: {tone_line}. Обращайся к сотруднику персонально по имени.\n\n"
+        "### Адаптационный трек сотрудника\n"
+        "Веди разговор сообразно тому, где человек на пути адаптации:\n"
+        f"{track_block}\n\n"
+        "### База знаний (точка интеграции)\n"
+        "Ты отвечаешь по базе знаний отдела сотрудника — первоисточники лежат в "
+        f"папке `{knowledge_dir}`. Если у тебя нет реального факта из этой базы — "
+        "НЕ выдумывай: честно скажи, что уточнишь/предложишь посмотреть первоисточник, "
+        "и опирайся только на то, что реально доступно. (Полноценный поиск по базе "
+        "знаний появится позже — сейчас не притворяйся, что он уже есть.)\n"
+    )
+
+
+def gigabuddy_persona_section(task: Dict[str, Any], drive_root: pathlib.Path | str) -> str:
+    """Persona section for a task, or "" unless it is the product-mode novice thread.
+
+    Gated on BOTH: product mode == gigabuddy AND the task's resolved project id ==
+    NOVICE_PROJECT_ID. Off in ordinary Ouroboros (product off) and in the
+    developer's own chat/threads — those get no persona and unchanged behavior.
+    Fail-soft: any error yields "".
+    """
+    try:
+        if not _product_mode_is_gigabuddy():
+            return ""
+        from ouroboros.project_facts import resolve_project_id
+
+        if resolve_project_id(task) != NOVICE_PROJECT_ID:
+            return ""
+        return build_gigabuddy_persona(drive_root)
+    except Exception:
+        log.debug("GigaBuddy persona section skipped on error", exc_info=True)
+        return ""

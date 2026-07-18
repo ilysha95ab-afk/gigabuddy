@@ -179,6 +179,49 @@ The intended mentor/admin/demo-operator phrases are:
 
 These must be authorized and audited when implemented live; they are not a hidden backdoor.
 
+## Novice role-contract / persona (B1, v6.77.0)
+
+In product mode **and only for the novice thread**, the ONE Ouroboros identity
+wears a ГигаБадди mentor persona injected into the system context. This is a
+**role overlay on one unified awareness (BIBLE P1), NOT memory isolation** — the
+agent still remembers everything; it simply behaves as the newcomer's mentor in
+that thread.
+
+- **Where it is built:** `ouroboros/gigabuddy_state.py::gigabuddy_persona_section(task, drive_root)`
+  → `build_gigabuddy_persona(drive_root)`. It is injected in
+  `ouroboros/context.py::_capture_context_core` as the first of the *dynamic*
+  context parts (a strong behavioral signal, but not part of the cached
+  governance prefix, because it reads live per-employee state).
+- **Double gate:** it returns `""` unless BOTH
+  `OUROBOROS_PRODUCT_MODE == "gigabuddy"` AND the task's resolved `project_id`
+  equals the novice project (`gigabuddy-novice`). So ordinary Ouroboros
+  (product off) and the developer's own chat/threads get **no persona and
+  unchanged behavior** — pinned by an invariant test.
+- **Hard role boundary:** the persona instructs the mentor to NEVER mention
+  Ouroboros, its architecture/code, versions, commits, evolution, development,
+  review, or "I am an AI/agent/model" to the newcomer, and to gently return to
+  the mentor role if asked about internals.
+- **Personalization:** it reads the persistent per-employee state
+  (name/role/department/experience/interests) and the interface tone
+  (`formal`/`friendly`/`playful`) and addresses the employee personally.
+- **Stage / track awareness:** the persona knows the current mentorship stage
+  (Советчик → Помощник → Партнёр — the status stays in the RIGHT panel) and the
+  employee's adaptation track, and leads the conversation accordingly.
+- **Knowledge integration point (not retrieval yet):** the persona names the
+  employee's first-source knowledge folder
+  (`~/Ouroboros/gigabuddy/employees/<id>/knowledge/`, via
+  `novice_knowledge_dir`) and is told NOT to invent facts. The actual
+  Karpathy-wiki retrieval skill is deferred to B3/C.
+- **Safety:** the persona is built read-only over the novice-safe view
+  (`build_gigabuddy_view`), so `internal_signals`, mentor notes, and rollback
+  history never reach it. Any failure yields `""` (fail-soft) so the novice
+  thread never breaks. No frozen contracts (`contracts.py`/`StateResponse`/
+  routes) or `BIBLE.md` are touched.
+
+**Next (B2):** the LEFT column will render the employee's animated *adaptation
+track* (their onboarding stages/steps), not the Советчик→Помощник→Партнёр role
+status — the role status remains on the RIGHT.
+
 ## Next implementation increment
 
 1. Add a proper mentor/admin surface for stage approval, task injection, profile switching, behavior rollback, and demo acceleration (Telegram first; a clearly separated admin panel is acceptable for filming).
