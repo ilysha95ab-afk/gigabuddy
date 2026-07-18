@@ -11,6 +11,7 @@ import pytest
 
 from ouroboros import gigabuddy_state
 from ouroboros.gigabuddy_state import (
+    BLANK_EMPLOYEE_ID,
     NOVICE_PROJECT_ID,
     apply_gigabuddy_action,
     build_gigabuddy_persona,
@@ -18,6 +19,11 @@ from ouroboros.gigabuddy_state import (
     gigabuddy_persona_section,
     novice_knowledge_dir,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_employees_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("OUROBOROS_GIGABUDDY_EMPLOYEES_ROOT", str(tmp_path / "employees"))
 
 
 def _novice_task():
@@ -34,7 +40,18 @@ def test_persona_injected_for_novice_thread_in_product_mode(tmp_path, monkeypatc
     persona = gigabuddy_persona_section(_novice_task(), tmp_path)
     assert persona
     assert "ГигаБадди" in persona
-    # Personalized from the persistent per-employee state.
+    # B3 neutral default: NO fabricated name; the persona runs the acquaintance
+    # (questionnaire) scenario instead of greeting a hardcoded Alice.
+    assert "Алиса" not in persona
+    assert "знаком" in persona.lower()  # acquaintance/questionnaire scenario
+
+
+def test_persona_personalizes_from_loaded_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("OUROBOROS_PRODUCT_MODE", "gigabuddy")
+    # After a profile is loaded, the persona addresses the newcomer by name.
+    apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "alice-demo"})
+    persona = gigabuddy_persona_section(_novice_task(), tmp_path)
+    assert persona
     assert "Алиса" in persona
 
 
@@ -71,7 +88,9 @@ def test_persona_never_leaks_sensitive_state(tmp_path, monkeypatch):
     monkeypatch.setenv("OUROBOROS_PRODUCT_MODE", "gigabuddy")
     # Seed sensitive internal fields, then confirm the persona never surfaces them.
     state = default_gigabuddy_state()
-    emp = state["employees"]["alice-demo"]
+    emp = state["employees"][BLANK_EMPLOYEE_ID]
+    emp["name"] = "Тест"  # named so the persona renders the profile block
+    emp["profile"] = dict(emp.get("profile") or {}, name="Тест")
     emp["internal_signals"] = {"confidence_risk": "high anxiety marker"}
     emp["mentor_notes"] = ["private mentor note"]
     emp["rollback_history"] = [{"version_id": "v1", "reason": "secret rollback reason"}]

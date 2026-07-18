@@ -9,68 +9,55 @@ export const GIGABUDDY_STAGES = [
     { id: 'partner', label: 'Партнёр', helpLevel: 'короткий деловой challenge-mode и подсветка рисков' },
 ];
 
+// Neutral fallback state (B3): NO synthetic candidate. Before a mentor's profile
+// file is parsed, the panel shows a nameless, empty-track neutral state — the
+// same "never fabricate" discipline the left track and persona already hold.
+// The backend `build_gigabuddy_view` is the source of truth; this only fills gaps
+// if the backend is momentarily unreachable, and it must stay neutral so an
+// offline UI never invents an employee.
 export const GIGABUDDY_DEMO_STATE = {
     productName: 'ГигаБадди',
     subtitle: 'персональный ИИ-наставник адаптации',
-    activeEmployeeId: 'alice-demo',
-    employees: [
-        { id: 'alice-demo', name: 'Алиса', role: 'HR · Люди и культура', avatar: '🐾' },
-        { id: 'leonid-demo', name: 'Леонид', role: 'Разработчик · внутренний переход', avatar: '⌘' },
-        { id: 'blank-demo', name: 'Новый сотрудник', role: 'Новый контекст', avatar: '✨' },
-    ],
+    activeEmployeeId: 'novice',
+    employees: [],
     employee: {
-        id: 'alice-demo',
-        name: 'Алиса',
-        role: 'HR · Люди и культура',
-        avatar: '🐾',
-        theme: 'soft-cat',
+        id: 'novice',
+        name: '',
+        role: '',
+        avatar: '✨',
+        theme: 'neutral',
     },
     profile: {
-        name: 'Алиса',
-        role: 'HR · Люди и культура',
-        department: 'Люди и культура',
-        experience: 'Первая роль в найме; сильна в коммуникации, осваивает внутренние регламенты.',
-        interests: ['котики', 'иллюстрация', 'командные ритуалы'],
+        name: '',
+        role: '',
+        department: '',
+        experience: '',
+        interests: [],
     },
     interface: {
-        theme: 'soft-cat',
-        accentColor: '#e8799f',
-        mascot: '🐾',
-        tone: 'playful',
+        theme: 'neutral',
+        accentColor: '#c93545',
+        mascot: '✨',
+        tone: 'friendly',
         layout: ['hero', 'stage', 'progress', 'tasks', 'next_step', 'readiness', 'questionnaire'],
     },
-    track: [
-        { id: 'advisor', label: 'Советчик', title: 'Онбординг с высокой опорой', status: 'active' },
-        { id: 'assistant', label: 'Помощник', title: 'Совместные задачи и разбор', status: 'planned' },
-        { id: 'partner', label: 'Партнёр', title: 'Самостоятельная работа с challenge-mode', status: 'planned' },
-    ],
+    track: [],
     stage: {
         id: 'advisor',
         label: 'Советчик',
         next: 'Помощник',
         helpLevel: 'Высокая опора: примеры, шаблоны, безопасные шаги',
     },
-    progressPct: 35,
-    nextStep: 'Разобрать безопасный шаблон ответа внутреннему заказчику',
-    readiness: 'Советчик → Помощник: требуется подтверждение наставника',
-    behaviorVersion: 'v1 · мягкий Советчик',
-    tasks: [
-        { id: 'alice-1', title: 'Познакомиться с процессом согласования вакансий', status: 'active', source: 'demo' },
-        { id: 'alice-2', title: 'Подготовить черновик ответа заказчику', status: 'planned', source: 'demo' },
-        { id: 'alice-3', title: 'Найти нужный HR-регламент в базе знаний', status: 'planned', source: 'demo' },
-    ],
+    progressPct: 0,
+    nextStep: '',
+    readiness: '',
+    behaviorVersion: 'v1 · Советчик',
+    tasks: [],
     mentorNotes: [],
-    questionnairePackage: {
-        title: 'Люди и культура · базовый опросник',
-        domain: 'HR / Люди и культура',
-        knowledgeBaseHint: 'Подгружается вместе с доменным пакетом БЗ в следующем инкременте',
-        diagnosticPolicy: 'ГигаБадди выводит уровень поддержки, автономности и стиль обучения сам; новичок не выбирает чувствительные ярлыки.',
-        questions: [
-            'Расскажи, какая часть новой роли сейчас кажется самой непонятной.',
-            'Представь запрос от внутреннего заказчика: с чего начнёшь безопасно?',
-            'Что поможет тебе быстрее войти в процесс: пример, чек-лист, схема или совместный разбор?',
-        ],
-    },
+    // The intake questionnaire lives in the CHAT scenario (persona-driven), not
+    // as a panel block; the neutral fallback carries an empty package so no
+    // synthetic questionnaire text ships in the offline UI.
+    questionnairePackage: { title: '', domain: '', questions: [] },
     events: [],
 };
 
@@ -217,6 +204,9 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
     const profile = state.profile || {};
     const mascot = iface.mascot || employee.avatar || '✨';
     const interestChips = (profile.interests || []).map((interest) => `<span class="gigabuddy-chip">${escapeHtml(interest)}</span>`).join('');
+    const hasName = Boolean((profile.name || employee.name || '').trim());
+    const displayName = hasName ? (profile.name || employee.name) : 'Профиль ещё не загружен';
+    const displayRole = hasName ? (profile.role || employee.role || 'Направление адаптации') : 'Наставник ещё не добавил профиль сотрудника';
     const trackStages = (Array.isArray(state.track) ? state.track : []).map((item) => `
         <li class="gigabuddy-adapt-stage" data-status="${escapeHtml(item.status || 'planned')}">
             <span class="gigabuddy-adapt-dot" aria-hidden="true">${item.status === 'done' ? '✓' : item.status === 'active' ? '●' : '○'}</span>
@@ -230,15 +220,17 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
                 <div class="gigabuddy-avatar" aria-hidden="true">${escapeHtml(mascot)}</div>
                 <div>
                     <div class="gigabuddy-eyebrow">Адаптационный трек</div>
-                    <h3>${escapeHtml(profile.name || employee.name || 'Новичок')}</h3>
-                    <p>${escapeHtml(profile.role || employee.role || 'Направление адаптации')}</p>
+                    <h3>${escapeHtml(displayName)}</h3>
+                    <p>${escapeHtml(displayRole)}</p>
                 </div>
             </div>
             <div class="gigabuddy-demo-context">
                 <span>Профиль новичка</span>
-                <p>${escapeHtml(`${mascot} ${profile.name || employee.name || 'Новичок'}${profile.department ? ' · ' + profile.department : ''}`)}</p>
+                ${hasName
+                    ? `<p>${escapeHtml(`${mascot} ${displayName}${profile.department ? ' · ' + profile.department : ''}`)}</p>
                 ${profile.experience ? `<p class="gigabuddy-profile-experience">${escapeHtml(profile.experience)}</p>` : ''}
-                ${interestChips ? `<div class="gigabuddy-chips">${interestChips}</div>` : ''}
+                ${interestChips ? `<div class="gigabuddy-chips">${interestChips}</div>` : ''}`
+                    : `<p class="gigabuddy-profile-empty">Профиль сотрудника ещё не загружен наставником. Он появится, когда наставник добавит файл профиля в папку сотрудника.</p>`}
             </div>
             <div class="gigabuddy-stage-card">
                 <span class="gigabuddy-stage-label">Я сейчас: ${escapeHtml(stage.label || 'Советчик')}</span>

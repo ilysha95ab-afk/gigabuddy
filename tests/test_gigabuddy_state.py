@@ -4,6 +4,7 @@ import pytest
 
 from ouroboros import projects_registry
 from ouroboros.gigabuddy_state import (
+    BLANK_EMPLOYEE_ID,
     GigaBuddyStateError,
     NOVICE_PROJECT_ID,
     STATE_RELATIVE_PATH,
@@ -11,23 +12,44 @@ from ouroboros.gigabuddy_state import (
     build_gigabuddy_view,
     default_gigabuddy_state,
     ensure_novice_project,
+    list_demo_profiles,
     load_gigabuddy_state,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_employees_root(tmp_path, monkeypatch):
+    """Confine employee-folder profile reads to a per-test tmp dir so no test
+    touches the real ~/Ouroboros/gigabuddy tree."""
+    monkeypatch.setenv("OUROBOROS_GIGABUDDY_EMPLOYEES_ROOT", str(tmp_path / "employees"))
+
+
+def _load_alice(tmp_path):
+    """Alice is now a LOADABLE demo profile, not the hardcoded default. Tests that
+    need the populated Alice fixture load it explicitly (mirrors the owner's
+    hand-swap for a demo)."""
+    return apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "alice-demo"})
 
 
 def test_gigabuddy_state_first_write_creates_parent_and_returns_view(tmp_path):
     result = apply_gigabuddy_action(tmp_path, "add_task", {"title": "Сделать пробную задачу"})
     assert result["ok"] is True
     assert (tmp_path / STATE_RELATIVE_PATH).is_file()
-    assert result["view"]["employee"]["name"] == "Алиса"
+    # B3: a fresh install is the neutral, nameless novice — NOT synthetic Alice.
+    assert result["view"]["employee"]["id"] == BLANK_EMPLOYEE_ID
+    assert result["view"]["employee"]["name"] == ""
+    assert result["view"]["profile"]["name"] == ""
     assert any(task["title"] == "Сделать пробную задачу" for task in result["view"]["tasks"])
 
 
 def test_gigabuddy_employee_switch_preserves_per_employee_state(tmp_path):
+    # load_profile is the demo-switch mechanism (owner hand-swaps configs). Each
+    # loaded employee keeps its own per-employee state.
+    _load_alice(tmp_path)
     apply_gigabuddy_action(tmp_path, "add_task", {"title": "Алисина задача"})
-    switched = apply_gigabuddy_action(tmp_path, "select_employee", {"employee_id": "leonid-demo"})
-    assert switched["view"]["employee"]["name"] == "Леонид"
-    assert all(task["title"] != "Алисина задача" for task in switched["view"]["tasks"])
+    loaded = apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "leonid-demo"})
+    assert loaded["view"]["employee"]["name"] == "Леонид"
+    assert all(task["title"] != "Алисина задача" for task in loaded["view"]["tasks"])
     back = apply_gigabuddy_action(tmp_path, "select_employee", {"employee_id": "alice-demo"})
     assert any(task["title"] == "Алисина задача" for task in back["view"]["tasks"])
 
@@ -43,15 +65,15 @@ def test_gigabuddy_actions_stage_rollback_and_events_are_bounded(tmp_path):
         apply_gigabuddy_action(tmp_path, "reject_stage", {"reason": f"reason {i}", "task_title": f"task {i}"})
     state = load_gigabuddy_state(tmp_path)
     assert len(state["events"]) <= 80
-    assert len(state["employees"]["alice-demo"]["tasks"]) <= 24
-    assert len(state["employees"]["alice-demo"]["mentor_notes"]) <= 12
+    assert len(state["employees"][BLANK_EMPLOYEE_ID]["tasks"]) <= 24
+    assert len(state["employees"][BLANK_EMPLOYEE_ID]["mentor_notes"]) <= 12
 
 
 def test_gigabuddy_view_hides_internal_diagnostics_and_mentor_private_text(tmp_path):
     state = default_gigabuddy_state()
-    state["employees"]["alice-demo"]["internal_signals"] = {"confidence_risk": "high anxiety marker"}
-    state["employees"]["alice-demo"]["mentor_notes"] = ["private mentor note"]
-    state["events"] = [{"op": "demo_accelerate", "employee_id": "alice-demo", "detail": "Быстрый виток демо"}]
+    state["employees"][BLANK_EMPLOYEE_ID]["internal_signals"] = {"confidence_risk": "high anxiety marker"}
+    state["employees"][BLANK_EMPLOYEE_ID]["mentor_notes"] = ["private mentor note"]
+    state["events"] = [{"op": "demo_accelerate", "employee_id": BLANK_EMPLOYEE_ID, "detail": "Быстрый виток демо"}]
     view = build_gigabuddy_view(state)
     dumped = json.dumps(view, ensure_ascii=False)
     assert "internal_signals" not in dumped
@@ -63,7 +85,8 @@ def test_gigabuddy_view_hides_internal_diagnostics_and_mentor_private_text(tmp_p
 
 
 def test_gigabuddy_view_exposes_profile_interface_and_track(tmp_path):
-    result = apply_gigabuddy_action(tmp_path, "get_state", {})
+    # Alice's populated profile/interface/track is a LOADABLE demo now.
+    result = _load_alice(tmp_path)
     view = result["view"]
     # Structured employee profile.
     assert view["profile"]["name"] == "Алиса"
@@ -76,14 +99,18 @@ def test_gigabuddy_view_exposes_profile_interface_and_track(tmp_path):
     assert iface["tone"] == "playful"
     assert iface["mascot"] == "🐾"
     assert "hero" in iface["layout"]
-    # Adaptation track keyed to the current stage.
-    stages = {item["id"]: item["status"] for item in view["track"]}
-    assert stages == {"advisor": "active", "assistant": "planned", "partner": "planned"}
-    # B2: every track item carries a view-pure `steps` list (empty by default,
-    # never fabricated — the questionnaire that fills it is B3/C).
-    for item in view["track"]:
+    # Build the personal track (as the chat questionnaire would) and confirm the
+    # durable write renders exactly those stages/steps.
+    apply_gigabuddy_action(tmp_path, "set_track", {"stages": [
+        {"label": "Знакомство", "title": "Первая неделя", "steps": ["Познакомиться с командой"]},
+        {"label": "Погружение", "title": "Первый месяц"},
+    ]})
+    built = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]["track"]
+    assert len(built) == 2
+    assert built[0]["status"] == "active"
+    assert built[0]["steps"] == ["Познакомиться с командой"]
+    for item in built:
         assert isinstance(item["steps"], list)
-        assert item["steps"] == []
 
 
 def test_gigabuddy_view_track_projects_bounded_steps(tmp_path):
@@ -91,7 +118,7 @@ def test_gigabuddy_view_track_projects_bounded_steps(tmp_path):
     # view-pure). This is the LEFT adaptation-track detail the newcomer expands.
     state = default_gigabuddy_state()
     steps = [f"Шаг {i}" for i in range(30)]  # exceeds MAX_TRACK_STEPS on purpose
-    state["employees"]["alice-demo"]["track"] = [
+    state["employees"][BLANK_EMPLOYEE_ID]["track"] = [
         {"id": "advisor", "label": "Знакомство", "title": "Старт", "status": "active", "steps": steps},
     ]
     view = build_gigabuddy_view(state)
@@ -106,7 +133,7 @@ def test_gigabuddy_view_track_projects_bounded_steps(tmp_path):
 
 def test_gigabuddy_invalid_interface_falls_back_to_design_system(tmp_path):
     state = default_gigabuddy_state()
-    state["employees"]["alice-demo"]["interface"] = {
+    state["employees"][BLANK_EMPLOYEE_ID]["interface"] = {
         "theme": "rainbow-explosion",
         "accent_color": "red; background:url(evil)",
         "tone": "aggressive",
@@ -125,20 +152,25 @@ def test_gigabuddy_invalid_interface_falls_back_to_design_system(tmp_path):
 
 
 def test_gigabuddy_track_progress_advances_with_stage(tmp_path):
+    # B3: the neutral novice starts with an EMPTY track → 0% progress (no
+    # fabricated stages). Load Alice (a demo) then build a track to exercise
+    # progress advancement.
     start = apply_gigabuddy_action(tmp_path, "get_state", {})
-    # advisor active (0.5), others planned => 0.5/3 ~= 17%
-    assert start["view"]["progressPct"] == 17
+    assert start["view"]["progressPct"] == 0
+    assert start["view"]["track"] == []
+    _load_alice(tmp_path)
     advanced = apply_gigabuddy_action(tmp_path, "approve_stage", {"stage": "assistant", "reason": "готова"})
-    # advisor done (1) + assistant active (0.5) => 1.5/3 = 50%
+    # approve_stage seeds+syncs a track: advisor done (1) + assistant active (0.5)
+    # + partner planned => 1.5/3 = 50%
     assert advanced["view"]["progressPct"] == 50
     assert advanced["view"]["profile"]["name"] == "Алиса"
 
 
 def test_gigabuddy_view_still_hides_diagnostics_with_new_fields(tmp_path):
     state = default_gigabuddy_state()
-    state["employees"]["alice-demo"]["internal_signals"] = {"confidence_risk": "high anxiety marker"}
-    state["employees"]["alice-demo"]["mentor_notes"] = ["private mentor note"]
-    state["employees"]["alice-demo"]["rollback_history"] = [{"version_id": "v1", "reason": "secret rollback reason"}]
+    state["employees"][BLANK_EMPLOYEE_ID]["internal_signals"] = {"confidence_risk": "high anxiety marker"}
+    state["employees"][BLANK_EMPLOYEE_ID]["mentor_notes"] = ["private mentor note"]
+    state["employees"][BLANK_EMPLOYEE_ID]["rollback_history"] = [{"version_id": "v1", "reason": "secret rollback reason"}]
     view = build_gigabuddy_view(state)
     dumped = json.dumps(view, ensure_ascii=False)
     assert "internal_signals" not in dumped
@@ -152,7 +184,7 @@ def test_gigabuddy_rollback_records_history_internally(tmp_path):
     apply_gigabuddy_action(tmp_path, "approve_stage", {"stage": "assistant", "reason": "ok"})
     apply_gigabuddy_action(tmp_path, "rollback", {"version_id": "v1"})
     state = load_gigabuddy_state(tmp_path)
-    history = state["employees"]["alice-demo"]["rollback_history"]
+    history = state["employees"][BLANK_EMPLOYEE_ID]["rollback_history"]
     assert len(history) >= 1
     assert history[-1]["version_id"] == "v1"
     assert len(history) <= 16
@@ -171,7 +203,8 @@ def test_gigabuddy_malformed_state_normalizes_to_defaults(tmp_path):
     path.write_text("not json", encoding="utf-8")
     state = load_gigabuddy_state(tmp_path)
     assert state["schema_version"] == 1
-    assert state["active_employee_id"] == "alice-demo"
+    # B3: malformed state normalizes to the NEUTRAL novice default, not Alice.
+    assert state["active_employee_id"] == BLANK_EMPLOYEE_ID
 
 
 # --- B1: novice-thread partitioning via a registered project (v6.76.0) --------
@@ -208,3 +241,125 @@ def test_ensure_novice_project_is_not_a_reducer_mutation(tmp_path):
     # Calling the registry bridge must not create GigaBuddy reducer state.
     ensure_novice_project(tmp_path)
     assert not (tmp_path / STATE_RELATIVE_PATH).exists()
+
+
+# --- B3: neutral start, profile-file parsing, chat-questionnaire track ---------
+
+def test_b3_default_state_is_neutral_and_nameless(tmp_path):
+    # A fresh install must NOT be synthetic Alice: no name, no department, empty
+    # track, neutral theme. This is the "never fabricate a candidate" discipline.
+    view = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]
+    assert view["employee"]["id"] == BLANK_EMPLOYEE_ID
+    assert view["profile"]["name"] == ""
+    assert view["profile"].get("department", "") == ""
+    assert view["track"] == []
+    assert view["interface"]["theme"] == "neutral"
+    assert view["progressPct"] == 0
+
+
+def test_b3_demo_profiles_are_loadable_not_default(tmp_path):
+    ids = {p["id"] for p in list_demo_profiles()}
+    assert {"alice-demo", "leonid-demo"} <= ids
+    # They are NOT the default; loading one is an explicit action.
+    loaded = apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "leonid-demo"})
+    assert loaded["view"]["profile"]["name"] == "Леонид"
+    assert loaded["audit"]["loaded"] is True
+    assert loaded["audit"]["source"] == "demo"
+
+
+def test_b3_load_profile_from_valid_file(tmp_path):
+    from ouroboros import gigabuddy_profile
+
+    emp_dir = gigabuddy_profile.employee_dir("nova-001") / "profile"
+    emp_dir.mkdir(parents=True, exist_ok=True)
+    (emp_dir / "profile.json").write_text(json.dumps({
+        "name": "Нова",
+        "role": "Аналитик",
+        "department": "Данные",
+        "experience": "Junior, любит SQL",
+        "interests": ["графики", "музыка"],
+        "interface": {"tone": "friendly", "accent_color": "#5ad1c9"},
+    }, ensure_ascii=False), encoding="utf-8")
+    result = apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "nova-001"})
+    view = result["view"]
+    assert result["audit"]["source"] == "file"
+    assert view["profile"]["name"] == "Нова"
+    assert view["profile"]["department"] == "Данные"
+    assert "графики" in view["profile"]["interests"]
+    assert view["interface"]["tone"] == "friendly"
+    # A freshly loaded profile still has an empty track (questionnaire fills it).
+    assert view["track"] == []
+
+
+def test_b3_load_profile_from_markdown_frontmatter(tmp_path):
+    from ouroboros import gigabuddy_profile
+
+    emp_dir = gigabuddy_profile.employee_dir("md-emp") / "profile"
+    emp_dir.mkdir(parents=True, exist_ok=True)
+    (emp_dir / "profile.md").write_text(
+        "---\nname: Марк\nrole: Дизайнер\ndepartment: Продукт\ninterests: типографика, цвет\n---\n"
+        "Пришёл из смежной команды, быстро учится.",
+        encoding="utf-8",
+    )
+    view = apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "md-emp"})["view"]
+    assert view["profile"]["name"] == "Марк"
+    assert view["profile"]["role"] == "Дизайнер"
+    assert "типографика" in view["profile"]["interests"]
+    assert "смежной команды" in view["profile"]["experience"]
+
+
+def test_b3_load_profile_missing_or_broken_stays_neutral(tmp_path):
+    from ouroboros import gigabuddy_profile
+
+    # Missing folder → fail-soft, stays nameless.
+    missing = apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "ghost"})
+    assert missing["audit"]["loaded"] is False
+    assert missing["view"]["profile"]["name"] == ""
+    # Broken JSON → fail-soft, no fabrication.
+    emp_dir = gigabuddy_profile.employee_dir("broken") / "profile"
+    emp_dir.mkdir(parents=True, exist_ok=True)
+    (emp_dir / "profile.json").write_text("{ not valid json", encoding="utf-8")
+    broken = apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "broken"})
+    assert broken["audit"]["loaded"] is False
+    assert broken["view"]["profile"]["name"] == ""
+
+
+def test_b3_chat_questionnaire_fills_track_and_persists(tmp_path):
+    # The chat questionnaire's outcome is a durable set_track write; the left
+    # track (B2) renders exactly this.
+    apply_gigabuddy_action(tmp_path, "set_track", {"stages": [
+        {"label": "Первые дни", "title": "Знакомство с командой", "steps": ["Встреча 1:1", "Доступы"]},
+        {"label": "Первый месяц", "title": "Первая реальная задача", "steps": ["Взять тикет"]},
+        {"label": "Автономность", "title": "Самостоятельная работа"},
+    ]})
+    # Durable: a fresh load from disk still carries the track.
+    reloaded = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]
+    assert len(reloaded["track"]) == 3
+    assert reloaded["track"][0]["status"] == "active"
+    assert reloaded["track"][0]["steps"][:2] == ["Встреча 1:1", "Доступы"]
+
+
+def test_b3_record_progress_is_durable(tmp_path):
+    apply_gigabuddy_action(tmp_path, "set_track", {"stages": [
+        {"id": "advisor", "label": "Старт", "title": "A"},
+        {"id": "assistant", "label": "Рост", "title": "B"},
+    ]})
+    apply_gigabuddy_action(tmp_path, "record_progress", {"stage_id": "advisor", "status": "done"})
+    # Persisted to disk, not only in dialogue.
+    state = load_gigabuddy_state(tmp_path)
+    emp = state["employees"][state["active_employee_id"]]
+    statuses = {i["id"]: i["status"] for i in emp["track"]}
+    assert statuses["advisor"] == "done"
+    assert emp["progress_pct"] > 0
+
+
+def test_b3_set_track_rejects_empty(tmp_path):
+    with pytest.raises(GigaBuddyStateError):
+        apply_gigabuddy_action(tmp_path, "set_track", {"stages": []})
+
+
+def test_b3_profile_file_access_is_confined(tmp_path):
+    # A traversal-style id must never escape the employees root.
+    from ouroboros import gigabuddy_profile
+
+    assert gigabuddy_profile.load_employee_profile("../../etc") is None

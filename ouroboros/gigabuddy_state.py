@@ -72,6 +72,13 @@ LAYOUT_SECTIONS = (
 # invalid falls back to the primary crimson so a config can never inject
 # arbitrary CSS.
 _HEX_ACCENT_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+# The neutral, nameless employee a fresh install starts on — BEFORE a mentor has
+# dropped a profile into the employee folder. It carries no name, no department,
+# an empty track and no tasks, so the panels/persona show neutral placeholders and
+# never fabricate a candidate (B3). Alice/Leonid are LOADABLE demo configs (files
+# under DEMO_PROFILES_DIR), not the hardcoded default.
+BLANK_EMPLOYEE_ID = "novice"
+
 ALLOWED_OPS = frozenset({
     "get_state",
     "select_employee",
@@ -80,6 +87,9 @@ ALLOWED_OPS = frozenset({
     "reject_stage",
     "rollback",
     "demo_accelerate",
+    "load_profile",
+    "set_track",
+    "record_progress",
 })
 
 
@@ -241,9 +251,16 @@ def _default_track(stage: str) -> list[Dict[str, Any]]:
     return track
 
 
-def _normalize_track(raw: Any, fallback_stage: str) -> list[Dict[str, Any]]:
-    if not isinstance(raw, list) or not raw:
-        return _default_track(fallback_stage)
+def _normalize_track(raw: Any, fallback_stage: str, *, allow_empty: bool = False) -> list[Dict[str, Any]]:
+    """Normalize an adaptation track.
+
+    A NON-list ``raw`` means "no track provided" and seeds the demo default. An
+    explicit empty list is preserved when ``allow_empty`` is set — the blank
+    (nameless) employee must keep an empty track (B3: never fabricate stages)."""
+    if not isinstance(raw, list):
+        return [] if allow_empty else _default_track(fallback_stage)
+    if not raw:
+        return [] if allow_empty else _default_track(fallback_stage)
     normalized: list[Dict[str, Any]] = []
     for item in raw[:MAX_TRACK_STAGES]:
         if not isinstance(item, dict):
@@ -256,7 +273,9 @@ def _normalize_track(raw: Any, fallback_stage: str) -> list[Dict[str, Any]]:
                 item.get("steps"),
             )
         )
-    return normalized or _default_track(fallback_stage)
+    if normalized:
+        return normalized
+    return [] if allow_empty else _default_track(fallback_stage)
 
 
 def _track_progress_pct(track: list[Dict[str, Any]]) -> int:
@@ -347,17 +366,53 @@ def _default_employee(
     }
 
 
+def _blank_employee() -> Dict[str, Any]:
+    """A neutral, nameless employee: no name, no department, empty track, no tasks.
+
+    This is the honest starting state before a mentor drops a profile file into
+    ``~/Ouroboros/gigabuddy/employees/<id>/profile/``. Panels and the persona show
+    neutral placeholders instead of fabricating a candidate (B3)."""
+    behavior = _behavior("v1", "advisor", "warm_supportive", "neutral", "neutral_start")
+    return {
+        "id": BLANK_EMPLOYEE_ID,
+        "name": "",
+        "role": "",
+        "avatar": "✨",
+        "theme": "neutral",
+        "stage": "advisor",
+        "progress_pct": 0,
+        "questionnaire_package_id": "people-culture-base",
+        "next_step": "",
+        "readiness": "",
+        "tasks": [],
+        "mentor_notes": [],
+        "behavior_versions": [behavior],
+        "active_behavior_version_id": behavior["id"],
+        "rollback_history": [],
+        "profile": _default_profile("", "", "", "", []),
+        "interface": _default_interface("neutral", DEFAULT_ACCENT, "✨", "friendly"),
+        "track": [],
+        "internal_signals": {},
+    }
+
+
 def default_gigabuddy_state() -> Dict[str, Any]:
-    """Return a fresh synthetic demo state with no real candidate data."""
+    """Return the neutral, nameless default state — NO synthetic candidate.
+
+    A fresh install starts on the blank ``novice`` employee (no name, no
+    department, empty track). Alice/Leonid live as LOADABLE demo profile files
+    (see ``list_demo_profiles``/``load_demo_profile``); the owner swaps them in by
+    hand for the demo via the ``load_profile`` action. They are deliberately NOT
+    the hardcoded default anymore (B3)."""
     return {
         "schema_version": SCHEMA_VERSION,
-        "active_employee_id": "alice-demo",
+        "active_employee_id": BLANK_EMPLOYEE_ID,
         "questionnaire_packages": {
             "people-culture-base": {
                 "id": "people-culture-base",
-                "title": "Люди и культура · базовый опросник",
-                "domain": "HR / Люди и культура",
-                "knowledge_base_hint": "Подгружается вместе с доменным пакетом БЗ в следующем инкременте",
+                "title": "Базовый опросник знакомства",
+                "domain": "",
+                "knowledge_base_hint": "Подгружается из папки knowledge/ сотрудника",
                 "diagnostic_policy": "ГигаБадди выводит уровень поддержки, автономности и стиль обучения сам; новичок не выбирает чувствительные ярлыки.",
                 "questions": [
                     "Расскажи, какая часть новой роли сейчас кажется самой непонятной.",
@@ -365,75 +420,80 @@ def default_gigabuddy_state() -> Dict[str, Any]:
                     "Что поможет тебе быстрее войти в процесс: пример, чек-лист, схема или совместный разбор?",
                 ],
             },
-            "dev-transfer-base": {
-                "id": "dev-transfer-base",
-                "title": "Внутренний переход · базовый опросник",
-                "domain": "Engineering / internal transfer",
-                "knowledge_base_hint": "Будет связан с БЗ команды разработки",
-                "diagnostic_policy": "Диагностика строится по ответам и выполненным задачам, без публичных психологических ярлыков.",
-                "questions": [
-                    "Какие системы и ограничения новой команды уже понятны?",
-                    "Как бы ты проверил изменение перед выкладкой?",
-                    "Где тебе полезнее challenge-mode, а где короткая подсказка?",
-                ],
-            },
         },
         "employees": {
-            "alice-demo": _default_employee(
-                "alice-demo",
-                "Алиса",
-                "HR · Люди и культура",
-                avatar="🐾",
-                theme="soft-cat",
-                stage="advisor",
-                progress=35,
-                questionnaire_package_id="people-culture-base",
-                department="Люди и культура",
-                experience="Первая роль в найме; сильна в коммуникации, осваивает внутренние регламенты.",
-                interests=["котики", "иллюстрация", "командные ритуалы"],
-                accent="#e8799f",
-                tone="playful",
-                tasks=[
-                    _task("alice-1", "Познакомиться с процессом согласования вакансий", status="active"),
-                    _task("alice-2", "Подготовить черновик ответа заказчику"),
-                    _task("alice-3", "Найти нужный HR-регламент в базе знаний"),
-                ],
-            ),
-            "leonid-demo": _default_employee(
-                "leonid-demo",
-                "Леонид",
-                "Разработчик · внутренний переход",
-                avatar="⌘",
-                theme="strict-terminal",
-                stage="assistant",
-                progress=52,
-                questionnaire_package_id="dev-transfer-base",
-                department="Инженерия платформы",
-                experience="Опытный разработчик; переходит между командами, нужен быстрый деловой тон.",
-                interests=["распределённые системы", "надёжность", "code review"],
-                accent="#5ad1c9",
-                tone="formal",
-                tasks=[
-                    _task("leo-1", "Собрать карту сервисов новой команды", status="active"),
-                    _task("leo-2", "Проверить процесс code review и релиза"),
-                ],
-            ),
-            "blank-demo": _default_employee(
-                "blank-demo",
-                "Новый сотрудник",
-                "Новый контекст",
-                avatar="✨",
-                theme="neutral",
-                stage="advisor",
-                progress=0,
-                questionnaire_package_id="people-culture-base",
-                tone="friendly",
-                tasks=[_task("blank-1", "Провести первичное диагностическое интервью", status="active")],
-            ),
+            BLANK_EMPLOYEE_ID: _blank_employee(),
         },
         "events": [],
         "updated_at": utc_now_iso(),
     }
+
+
+# --- Loadable demo profiles (Alice / Leonid) --------------------------------
+# These are DEMO CONFIGS the owner loads by hand for a demo — NOT the hardcoded
+# default. `load_profile` with one of these ids does a full state replacement for
+# the active employee, mirroring the file-parse path (B3). A mentor's real profile
+# file under employees/<id>/profile/ takes precedence over these built-in demos.
+_DEMO_PROFILES: Dict[str, Dict[str, Any]] = {
+    "alice-demo": {
+        "name": "Алиса",
+        "role": "HR · Люди и культура",
+        "profile": {
+            "name": "Алиса",
+            "role": "HR · Люди и культура",
+            "department": "Люди и культура",
+            "experience": "Первая роль в найме; сильна в коммуникации, осваивает внутренние регламенты.",
+            "interests": ["котики", "иллюстрация", "командные ритуалы"],
+        },
+        "interface": {"theme": "soft-cat", "accent_color": "#e8799f", "mascot": "🐾", "tone": "playful"},
+    },
+    "leonid-demo": {
+        "name": "Леонид",
+        "role": "Разработчик · внутренний переход",
+        "profile": {
+            "name": "Леонид",
+            "role": "Разработчик · внутренний переход",
+            "department": "Инженерия платформы",
+            "experience": "Опытный разработчик; переходит между командами, нужен быстрый деловой тон.",
+            "interests": ["распределённые системы", "надёжность", "code review"],
+        },
+        "interface": {"theme": "strict-terminal", "accent_color": "#5ad1c9", "mascot": "⌘", "tone": "formal"},
+    },
+}
+
+
+def list_demo_profiles() -> list[Dict[str, str]]:
+    """Loadable built-in demo profiles (id + display name) for the owner switcher."""
+    return [
+        {"id": pid, "name": str(spec.get("name") or pid)}
+        for pid, spec in _DEMO_PROFILES.items()
+    ]
+
+
+def _apply_profile_fragment(emp: Dict[str, Any], fragment: Dict[str, Any]) -> None:
+    """Merge a parsed profile fragment (from a file or a built-in demo) onto the
+    active employee: name/role/profile/interface. The subsequent normalize pass
+    validates every field (allow-lists, hex accent, caps)."""
+    if not isinstance(fragment, dict):
+        return
+    if fragment.get("name"):
+        emp["name"] = str(fragment["name"]).strip()
+    if fragment.get("role"):
+        emp["role"] = str(fragment["role"]).strip()
+    prof = fragment.get("profile")
+    if isinstance(prof, dict):
+        emp_profile = dict(emp.get("profile") or {})
+        emp_profile.update({k: v for k, v in prof.items() if v})
+        emp["profile"] = emp_profile
+    iface = fragment.get("interface")
+    if isinstance(iface, dict):
+        emp_iface = dict(emp.get("interface") or {})
+        emp_iface.update({k: v for k, v in iface.items() if v})
+        emp["interface"] = emp_iface
+        if iface.get("mascot"):
+            emp["avatar"] = str(iface["mascot"]).strip()[:8]
+        if iface.get("theme"):
+            emp["theme"] = str(iface["theme"]).strip()[:80]
 
 
 def _normalize_task(raw: Any) -> Dict[str, Any] | None:
@@ -503,9 +563,15 @@ def _normalize_employee(raw: Any, fallback: Dict[str, Any]) -> Dict[str, Any]:
     emp["internal_signals"] = {str(k)[:80]: _clip(v, MAX_NOTE_CHARS) for k, v in signals.items()}
     emp["profile"] = _normalize_profile(raw.get("profile"), emp.get("profile"), emp)
     emp["interface"] = _normalize_interface(raw.get("interface"), emp.get("interface") or {})
+    # B3 "never fabricate a track": an empty track is preserved for EVERY
+    # employee (the blank novice AND a freshly loaded named profile whose track
+    # the chat questionnaire has not built yet). Stages only ever come from the
+    # questionnaire (set_track) or an explicit stage transition (which seeds via
+    # _sync_track_to_stage) — never from normalization.
     emp["track"] = _normalize_track(
         raw.get("track") if isinstance(raw.get("track"), list) else emp.get("track"),
         emp["stage"],
+        allow_empty=True,
     )
     rollback_raw = raw.get("rollback_history") if isinstance(raw.get("rollback_history"), list) else emp.get("rollback_history", [])
     rollback_history: list[Dict[str, Any]] = []
@@ -723,6 +789,120 @@ def _op_add_task(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, An
     return {"state": state, "audit": {"op": "add_task", "employee_id": emp["id"], "task_id": task["id"], "result": "success"}}
 
 
+def _op_load_profile(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Load a newcomer profile into the active employee (B3).
+
+    Precedence: a mentor's real file under ``employees/<id>/profile/`` wins; else a
+    built-in demo config (alice-demo/leonid-demo). ``employee_id`` selects both the
+    folder and the demo id. Fail-soft: if nothing parses, the active employee stays
+    neutral/nameless and the op reports ``loaded=False`` rather than fabricating."""
+    emp = _active_employee(state)
+    requested = _slug(payload.get("employee_id"), "") or emp.get("id") or BLANK_EMPLOYEE_ID
+    fragment: Dict[str, Any] | None = None
+    source = "none"
+    try:
+        from ouroboros import gigabuddy_profile
+
+        fragment = gigabuddy_profile.load_employee_profile(requested)
+        if fragment:
+            source = "file"
+    except Exception:
+        log.warning("GigaBuddy profile file load failed for %s", requested, exc_info=True)
+        fragment = None
+    if not fragment and requested in _DEMO_PROFILES:
+        fragment = copy.deepcopy(_DEMO_PROFILES[requested])
+        source = "demo"
+    if not fragment:
+        _append_event(state, _event("load_profile", requested, "Профиль не найден — нейтральный старт", result="empty"))
+        return {"state": state, "audit": {"op": "load_profile", "employee_id": requested, "loaded": False, "source": source, "result": "empty"}}
+    # Loading a profile is a full state replacement for THAT employee. If the
+    # requested id already has state, reuse it (preserve per-employee history);
+    # otherwise start from a FRESH blank base so a different newcomer never
+    # inherits the previous person's tasks/notes/track.
+    existing = state.get("employees", {}).get(requested)
+    if isinstance(existing, dict) and existing.get("id") == requested:
+        target = existing
+    else:
+        target = _blank_employee()
+        target["id"] = requested
+    _apply_profile_fragment(target, fragment)
+    # A freshly loaded profile starts with an empty track: the chat questionnaire
+    # (Part 3) fills it. Do not fabricate stages.
+    target["track"] = []
+    target["stage"] = "advisor"
+    target["progress_pct"] = 0
+    state["employees"][requested] = target
+    state["active_employee_id"] = requested
+    _append_event(state, _event("load_profile", requested, "Профиль загружен", result="success", source=source))
+    return {"state": state, "audit": {"op": "load_profile", "employee_id": requested, "loaded": True, "source": source, "result": "success"}}
+
+
+def _op_set_track(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Set the active employee's adaptation track (B3 chat-questionnaire outcome).
+
+    ``stages`` is a list of ``{label, title, steps[]}`` built for THIS newcomer.
+    This is the durable write behind the in-chat questionnaire: the left track
+    (B2) renders exactly this. Progress is re-derived from the resulting track."""
+    emp = _active_employee(state)
+    stages = payload.get("stages")
+    if not isinstance(stages, list) or not stages:
+        raise GigaBuddyStateError("A non-empty track stages list is required.")
+    order = list(STAGES)
+    built: list[Dict[str, Any]] = []
+    for i, item in enumerate(stages[:MAX_TRACK_STAGES]):
+        if not isinstance(item, dict):
+            continue
+        # Map the i-th stage onto advisor/assistant/partner in order unless an
+        # explicit valid stage id is given.
+        sid = item.get("id")
+        if _stage(sid, "") not in STAGES:
+            sid = order[min(i, len(order) - 1)]
+        status = _clip(item.get("status"), 32) or ("active" if i == 0 else "planned")
+        built.append(_track_stage(sid, item.get("title") or item.get("label"), status, item.get("steps")))
+    if not built:
+        raise GigaBuddyStateError("No valid track stages were provided.")
+    emp["track"] = built
+    emp["progress_pct"] = _track_progress_pct(built)
+    _append_event(state, _event("set_track", emp["id"], "Адаптационный трек обновлён по итогам знакомства", stages=len(built)))
+    return {"state": state, "audit": {"op": "set_track", "employee_id": emp["id"], "stages": len(built), "result": "success"}}
+
+
+def _op_record_progress(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Durably record adaptation progress: mark a track stage done/active/planned.
+
+    ``stage_id`` + ``status`` update one stage; progress is re-derived. This keeps
+    the newcomer's stage in the PERSISTENT state (not only in the compressed
+    dialogue), so the mentor persona does not 'forget' the stage after weeks."""
+    emp = _active_employee(state)
+    track = emp.get("track") or []
+    if not track:
+        raise GigaBuddyStateError("No adaptation track to record progress against.")
+    stage_id = _stage(payload.get("stage_id"), "")
+    status = _clip(payload.get("status"), 32)
+    if status not in {"planned", "active", "done"}:
+        raise GigaBuddyStateError("Progress status must be planned/active/done.")
+    matched = False
+    for item in track:
+        if item.get("id") == stage_id:
+            item["status"] = status
+            matched = True
+            break
+    if not matched:
+        raise GigaBuddyStateError("Unknown track stage id.")
+    emp["track"] = track
+    emp["progress_pct"] = _track_progress_pct(track)
+    # Keep the employee stage aligned with the furthest active/done stage.
+    order = list(STAGES)
+    furthest = emp.get("stage", "advisor")
+    for item in track:
+        if item.get("status") in {"active", "done"} and _stage(item.get("id")) in order:
+            if order.index(_stage(item["id"])) >= order.index(_stage(furthest)):
+                furthest = _stage(item["id"])
+    emp["stage"] = furthest
+    _append_event(state, _event("record_progress", emp["id"], "Прогресс адаптации обновлён", stage_id=stage_id, status=status))
+    return {"state": state, "audit": {"op": "record_progress", "employee_id": emp["id"], "stage_id": stage_id, "status": status, "result": "success"}}
+
+
 def _sync_track_to_stage(emp: Dict[str, Any], stage_id: str) -> None:
     """Move the adaptation track so stages before the current one are done, the
     current stage is active, and later stages stay planned. If the employee has
@@ -820,6 +1000,9 @@ _OPS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]] = {
     "reject_stage": _op_reject_stage,
     "rollback": _op_rollback,
     "demo_accelerate": _op_demo_accelerate,
+    "load_profile": _op_load_profile,
+    "set_track": _op_set_track,
+    "record_progress": _op_record_progress,
 }
 
 _ALLOWED_PAYLOAD_KEYS = {
@@ -830,6 +1013,9 @@ _ALLOWED_PAYLOAD_KEYS = {
     "reject_stage": frozenset({"reason", "task_title"}),
     "rollback": frozenset({"version_id"}),
     "demo_accelerate": frozenset({"stage", "reason"}),
+    "load_profile": frozenset({"employee_id"}),
+    "set_track": frozenset({"stages"}),
+    "record_progress": frozenset({"stage_id", "status"}),
 }
 
 
@@ -962,7 +1148,10 @@ def build_gigabuddy_persona(drive_root: pathlib.Path | str) -> str:
     employee = view.get("employee") or {}
     track = view.get("track") or []
 
-    name = str(profile.get("name") or employee.get("name") or "новичок").strip()
+    raw_name = str(profile.get("name") or employee.get("name") or "").strip()
+    has_name = bool(raw_name)
+    name = raw_name or "новичок"
+    has_track = bool(track)
     role = str(profile.get("role") or "").strip()
     department = str(profile.get("department") or "").strip()
     experience = str(profile.get("experience") or "").strip()
@@ -984,17 +1173,69 @@ def build_gigabuddy_persona(drive_root: pathlib.Path | str) -> str:
     track_block = "\n".join(track_lines) if track_lines else "  - (трек ещё не построен)"
 
     knowledge_dir = novice_knowledge_dir(employee.get("id") or "")
+    # #5 integration point: if HR/management placed a base questionnaire in the
+    # employee folder, lean on it during the acquaintance scenario. Fail-soft.
+    has_base_questionnaire = False
+    try:
+        from ouroboros import gigabuddy_profile as _gp
 
-    profile_bits = [f"Имя: {name}"]
-    if role:
-        profile_bits.append(f"Роль: {role}")
-    if department:
-        profile_bits.append(f"Отдел: {department}")
-    if experience:
-        profile_bits.append(f"Опыт: {experience}")
-    if interests:
-        profile_bits.append(f"Интересы: {', '.join(interests)}")
-    profile_block = "\n".join(f"- {bit}" for bit in profile_bits)
+        has_base_questionnaire = _gp.has_questionnaire(employee.get("id") or "")
+    except Exception:
+        has_base_questionnaire = False
+
+    if has_name:
+        profile_bits = [f"Имя: {name}"]
+        if role:
+            profile_bits.append(f"Роль: {role}")
+        if department:
+            profile_bits.append(f"Отдел: {department}")
+        if experience:
+            profile_bits.append(f"Опыт: {experience}")
+        if interests:
+            profile_bits.append(f"Интересы: {', '.join(interests)}")
+        profile_block = "\n".join(f"- {bit}" for bit in profile_bits)
+    else:
+        profile_block = (
+            "- Профиль сотрудника ещё НЕ загружен наставником — имени и роли пока нет.\n"
+            "- Не выдумывай имя/отдел. Знакомься по-человечески: спроси, как обращаться."
+        )
+
+    if not has_track:
+        greet = (
+            f"Поприветствуй {name} по имени" if has_name
+            else "Тепло поздоровайся и спроси, как к сотруднику обращаться"
+        )
+        base_q_hint = (
+            "Наставник уже приложил базовый опросник от управления/HR в папке сотрудника — "
+            "обопрись на него как на отправную точку, дополнив своими тёплыми вопросами.\n"
+            if has_base_questionnaire else ""
+        )
+        scenario_block = (
+            "### Сценарий первого знакомства (трек ещё пуст — построй его)\n"
+            f"Сейчас у сотрудника ещё НЕТ адаптационного трека. Твоя задача — провести короткое, "
+            "живое знакомство и по его итогам построить персональный трек адаптации.\n"
+            f"1. {greet}, представься как ГигаБадди — персональный наставник адаптации, и предложи "
+            "пройти короткое знакомство, чтобы вместе определить его трек адаптации.\n"
+            f"{base_q_hint}"
+            "2. Задай несколько тёплых, человечных вопросов (не сухой чек-лист): что уже понятно в "
+            "новой роли, а что кажется самым непонятным; какой формат помощи ему ближе (пример, "
+            "чек-лист, схема, совместный разбор); что важно освоить в первую очередь. Опирайся на "
+            "разумные мировые практики онбординга (30-60-90 дней, адаптация по компетенциям), но "
+            "веди разговор с душой и персонально, а не по шаблону.\n"
+            "3. По итогам знакомства построй персональный адаптационный трек: 2-3 крупные фазы с "
+            "понятными названиями и конкретными шагами внутри каждой (это НЕ роли Советчик→Партнёр — "
+            "это этапы адаптации именно этого человека).\n"
+            "4. Прогресс адаптации сохраняется в долговременной памяти проекта (в персистентном "
+            "состоянии сотрудника), а не только в переписке — так ты не забудешь стадию новичка даже "
+            "спустя недели. Продвижение по этапам фиксируй по мере того, как сотрудник их проходит.\n\n"
+        )
+    else:
+        scenario_block = (
+            "### Как вести адаптацию дальше\n"
+            "Трек уже построен. Веди сотрудника по его этапам сообразно текущей стадии, помогай "
+            "проходить шаги, и фиксируй пройденные этапы в долговременной памяти проекта, чтобы "
+            "прогресс сохранялся между сессиями.\n\n"
+        )
 
     stage_bits = []
     if stage_label:
@@ -1028,6 +1269,7 @@ def build_gigabuddy_persona(drive_root: pathlib.Path | str) -> str:
         "### Адаптационный трек сотрудника\n"
         "Веди разговор сообразно тому, где человек на пути адаптации:\n"
         f"{track_block}\n\n"
+        f"{scenario_block}\n"
         "### База знаний (точка интеграции)\n"
         "Ты отвечаешь по базе знаний отдела сотрудника — первоисточники лежат в "
         f"папке `{knowledge_dir}`. Если у тебя нет реального факта из этой базы — "

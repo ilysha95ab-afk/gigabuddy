@@ -351,6 +351,41 @@ def test_gigabuddy_left_adaptation_track_is_live_and_expandable():
     assert ".style." not in left  # renderer emits classes/markup, not inline styles
 
 
+def test_gigabuddy_b3_neutral_start_and_profile_parsing(tmp_path=None):
+    """B3 (v6.79.0): a fresh install is the NEUTRAL, nameless novice — the
+    synthetic Alice default is gone from both the backend reducer default and the
+    frontend fallback; Alice/Leonid are loadable demo configs; profiles parse from
+    the employee folder."""
+    gigabuddy = _read("web/modules/gigabuddy.js")
+    gb_state = _read("ouroboros/gigabuddy_state.py")
+    profile_mod = _read("ouroboros/gigabuddy_profile.py")
+
+    # Backend default is the blank/neutral novice, NOT synthetic Alice.
+    assert "BLANK_EMPLOYEE_ID" in gb_state
+    assert "_blank_employee" in gb_state
+    assert '"active_employee_id": BLANK_EMPLOYEE_ID' in gb_state
+    # Alice/Leonid survive as LOADABLE demo profiles, not the hardcoded default.
+    assert "_DEMO_PROFILES" in gb_state and "list_demo_profiles" in gb_state
+    # The three B3 durable ops exist and are whitelisted.
+    for op in ("load_profile", "set_track", "record_progress"):
+        assert f'"{op}"' in gb_state
+
+    # Frontend fallback is neutral: no synthetic Alice name/department, empty track.
+    assert "activeEmployeeId: 'novice'" in gigabuddy
+    assert "Алиса" not in gigabuddy
+    assert "Люди и культура" not in gigabuddy
+    assert "Базовый опросник" not in gigabuddy
+    # Nameless-safe panel placeholders (never a fabricated person).
+    assert "Профиль ещё не загружен" in gigabuddy
+
+    # Profile parsing module: folder-confined, fail-soft, integration points for
+    # the #4 knowledge (wiki) and #5 questionnaire skills.
+    assert "employees_root" in profile_mod and "_is_confined" in profile_mod
+    assert "def load_employee_profile" in profile_mod
+    assert "def has_questionnaire" in profile_mod  # #5 integration point
+    assert "def knowledge_dir_exists" in profile_mod  # #4 integration point
+
+
 def test_server_navigation_and_chat_static_contracts():
     server_source = _read("server.py")
     state_source = _read("ouroboros/gateway/state.py")

@@ -238,6 +238,73 @@ that thread.
 `steps`, the Karpathy-wiki knowledge retrieval skill, and the questionnaire /
 adaptation-methodology skill.
 
+## Employee data from files: neutral start + profile parsing + chat questionnaire (B3, v6.79.0)
+
+Before B3 the default state was a synthetic **Alice** hardcoded in the reducer
+(and mirrored in the frontend fallback). The product scenario, however, starts
+with the **mentor placing files** in the employee's folder — so a fresh install
+must be **neutral and nameless**, and the panels must fill only from parsed data.
+
+### Neutral start
+
+- `default_gigabuddy_state()` now returns a `_blank_employee()` — id `novice`,
+  no name, no department, empty track, neutral theme. The right panel shows
+  «Профиль ещё не загружен наставником», the left track shows its neutral
+  placeholder, and the persona greets without a name and runs the acquaintance
+  scenario. The frontend offline fallback (`GIGABUDDY_DEMO_STATE`) is neutral too.
+- The **"never fabricate a track"** discipline now holds for **every** employee:
+  `_normalize_track(..., allow_empty=True)` keeps an empty track even for a named,
+  freshly loaded profile. Stages only ever come from the chat questionnaire
+  (`set_track`) or an explicit stage transition (`_sync_track_to_stage`).
+- **Alice / Leonid** survive as **loadable demo configs** (`_DEMO_PROFILES`,
+  listed by `list_demo_profiles()`), NOT the hardcoded default. The owner
+  hand-swaps them for a demo via the `load_profile` op (a full state replacement
+  for that employee; a different id starts from a fresh blank base so one
+  newcomer never inherits another's tasks/notes).
+
+### Employee folder structure
+
+```
+~/Ouroboros/gigabuddy/employees/<employee_id>/
+├── profile/        # newcomer profile (JSON or markdown with YAML frontmatter)
+├── questionnaire/  # base questionnaire from HR/management (#5 integration point)
+└── knowledge/      # department knowledge base (#4 wiki integration point)
+```
+
+`ouroboros/gigabuddy_profile.py` reads this tree **fail-soft** and
+**folder-confined** (`_is_confined`; a `..`/symlink escape is rejected, files are
+byte-capped). Profile format is a small dict — `name`, `role`, `department`,
+`experience`, `interests[]`, optional `interface` attributes. A **missing, empty,
+or broken** folder yields `None`, and the state stays neutral and nameless — never
+a fabricated candidate. A test override `OUROBOROS_GIGABUDDY_EMPLOYEES_ROOT` keeps
+this hermetic in tests; production always uses `~/Ouroboros/gigabuddy/employees`.
+
+Integration points (functions exist, the heavy skills are **NOT** built here):
+`has_questionnaire(<id>)` lets the persona lean on a base questionnaire if the
+mentor placed one; `knowledge_dir_exists(<id>)` / `novice_knowledge_dir(<id>)`
+keep the persona's knowledge-source pointer consistent for the future #4 wiki.
+
+### Chat questionnaire that fills the real track
+
+The intake questionnaire lives in the **chat scenario**, not a panel block. When
+the novice writes to the GigaBuddy chat and the track is still empty, the persona
+(`build_gigabuddy_persona`) runs a warm acquaintance: greet by name (from the
+parsed profile), ask a few human questions grounded in real onboarding practice
+(30-60-90 / competency-based), then **build the personal adaptation track** by
+writing 2-3 phases with concrete steps into the durable `track.steps` via
+`set_track` (exactly the field the B2 left track renders). Adaptation progress
+(stage, completed phases) persists in **durable per-employee state**
+(`record_progress`), not only in compressed dialogue, so the mentor role survives
+weeks without forgetting where the newcomer is.
+
+Durable reducer ops added: `load_profile` (file → demo → neutral precedence),
+`set_track` (questionnaire writes stages/steps), `record_progress` (mark a stage
+done and recompute progress). All are view-pure at the projection boundary and
+respect the novice-safe view (`internal_signals` / mentor notes / rollback
+history never leak). The methodology of the questionnaire is an embedded scenario
+for now; extracting it into a dedicated skill (#5) and building the knowledge
+retrieval wiki (#4) remain the next separate works.
+
 ## Next implementation increment
 
 1. Add a proper mentor/admin surface for stage approval, task injection, profile switching, behavior rollback, and demo acceleration (Telegram first; a clearly separated admin panel is acceptable for filming).
