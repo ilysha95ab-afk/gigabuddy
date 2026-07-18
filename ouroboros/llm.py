@@ -619,6 +619,13 @@ class LLMClient:
                 # Strict pydantic-style servers (Anthropic direct, vLLM/SGLang)
                 # reject unknown fields as "Extra inputs are not permitted".
                 "not permitted",
+                # Pydantic-v2 VALUE validation: a provider (e.g. cloud.ru) that
+                # accepts the param name but rejects our value phrases it as
+                # "response_format.type: Input should be 'json_schema'". Guarded
+                # by the droppable-param-name check above, so this only fires for
+                # a value we may safely drop-and-retry (the safety supervisor's
+                # bracket-scan text fallback still parses the plain response).
+                "input should be",
             )
         )
 

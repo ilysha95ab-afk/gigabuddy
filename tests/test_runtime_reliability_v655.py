@@ -226,6 +226,44 @@ def test_response_format_in_droppable_params():
     assert "response_format" not in fresh
 
 
+def test_cloudru_json_schema_value_rejection_triggers_strip_and_retry():
+    """cloud.ru rejects our json_object VALUE with pydantic-v2 phrasing
+    ("response_format.type: Input should be 'json_schema'"). Before v6.72.0 the
+    rejection matcher did not recognize this, so the safety supervisor's LLM call
+    hard-failed -> SAFETY_VIOLATION -> run_command/verify_and_record all blocked.
+    The matcher must now recognize it and strip response_format for a clean retry
+    (the safety supervisor's text bracket-scan fallback still parses the reply)."""
+    from ouroboros.llm import LLMClient
+
+    exc = RuntimeError(
+        "Error code: 400 - {'error': {'code': 'invalid_request_error', "
+        "'message': \"response_format.type: Input should be 'json_schema'\", "
+        "'type': 'invalid_request_error'}}"
+    )
+    assert LLMClient._parameter_rejection_error(exc) is True
+    payload = {
+        "model": "m",
+        "messages": [],
+        "response_format": {"type": "json_object"},
+    }
+    retry = LLMClient._retry_without_optional_sampling(
+        payload, "cloudru::openai/gpt-5.5", exc
+    )
+    assert retry is not None and "response_format" not in retry
+
+
+def test_input_should_be_marker_requires_a_droppable_param_name():
+    """The pydantic 'input should be' marker must only match when a droppable
+    parameter name is also present, so an unrelated 400 does not falsely trigger
+    a strip-and-retry."""
+    from ouroboros.llm import LLMClient
+
+    unrelated = RuntimeError(
+        "Error code: 400 - messages.0.role: Input should be 'system'"
+    )
+    assert LLMClient._parameter_rejection_error(unrelated) is False
+
+
 def test_chat_signature_accepts_response_format():
     import inspect
 
