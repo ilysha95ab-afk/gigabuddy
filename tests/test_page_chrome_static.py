@@ -176,6 +176,16 @@ def test_gigabuddy_product_mode_is_reversible_ui_overlay():
     assert "Задача от наставника" not in gigabuddy
     assert "Наставнический контур" in gigabuddy
     assert "Советчик" in gigabuddy and "Помощник" in gigabuddy and "Партнёр" in gigabuddy
+    # Decluttered novice panel (v6.75.1): no micro-checklist tasks, no v1/rollback
+    # system line, no mentor-only readiness block, no questionnaire/domain package.
+    assert "gigabuddy-track-task" not in gigabuddy
+    assert "Готовность к переходу" not in gigabuddy
+    assert "Прогресс сохраняется при откате" not in gigabuddy
+    assert "Базовый опросник" not in gigabuddy
+    assert "gigabuddy-questionnaire" not in gigabuddy
+    # The questionnaire block is replaced by a link to the knowledge-source folder.
+    assert "Материалы базы знаний" in gigabuddy
+    assert "gigabuddy/employees/" in gigabuddy and "/knowledge/" in gigabuddy
     assert "s-product-mode" in settings and "OUROBOROS_PRODUCT_MODE" in settings
     assert "Product Mode" in settings_ui and "ГигаБадди" in settings_ui
     assert "GIGABUDDY_ADMIN_PIN" in settings_ui

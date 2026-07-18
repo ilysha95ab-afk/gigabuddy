@@ -157,13 +157,8 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
     const state = normalizeView(view);
     const employee = state.employee || {};
     const stage = state.stage || {};
-    const taskItems = state.tasks.map((task) => `
-        <li class="gigabuddy-track-task" data-status="${escapeHtml(task.status || 'planned')}">
-            <span class="gigabuddy-track-check" aria-hidden="true">${task.status === 'done' ? '✓' : '□'}</span>
-            <span>${escapeHtml(task.title || '')}</span>
-        </li>
-    `).join('');
-    const questionItems = (state.questionnairePackage.questions || []).map((question) => `<li>${escapeHtml(question)}</li>`).join('');
+    const knowledgeEmployeeId = String(employee.id || state.activeEmployeeId || '').trim() || '<employee-id>';
+    const knowledgePath = `~/Ouroboros/gigabuddy/employees/${knowledgeEmployeeId}/knowledge/`;
     const progress = Math.max(0, Math.min(100, Number(state.progressPct || 0)));
     const iface = state.interface || {};
     const profile = state.profile || {};
@@ -202,29 +197,15 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
             </div>
             <progress class="gigabuddy-progress-bar" max="100" value="${progress}" aria-label="Прогресс адаптации: ${progress}%"></progress>
             ${trackStages ? `<ul class="gigabuddy-adapt-track" aria-label="Стадии адаптационного трека">${trackStages}</ul>` : ''}
-            <ul class="gigabuddy-track-list">${taskItems}</ul>
-            <div class="gigabuddy-next-step">
-                <span>Следующий шаг</span>
-                <p>${escapeHtml(state.nextStep || '')}</p>
-            </div>
-            <div class="gigabuddy-readiness">
-                <span>Готовность к переходу</span>
-                <p>${escapeHtml(state.readiness || '')}</p>
-            </div>
             <details class="gigabuddy-mentor-details">
                 <summary>Наставнический контур</summary>
                 <p>Задачи, переходы ролей и изменения трека согласуются с наставником через Telegram/admin-контур снаружи этого экрана; здесь ты видишь только текущий трек и версию поддержки.</p>
             </details>
-            <div class="gigabuddy-version-row">
-                <span>${escapeHtml(state.behaviorVersion || 'v1')}</span>
-                <span>Прогресс сохраняется при откате поведения</span>
+            <div class="gigabuddy-knowledge-link">
+                <span>Материалы базы знаний</span>
+                <p>Первоисточники твоего отдела лежат здесь — открой при желании:</p>
+                <code class="gigabuddy-knowledge-path">${escapeHtml(knowledgePath)}</code>
             </div>
-            <details class="gigabuddy-questionnaire" open>
-                <summary>Базовый опросник / доменный пакет</summary>
-                <p><strong>${escapeHtml(state.questionnairePackage.title || '')}</strong></p>
-                <p>${escapeHtml(state.questionnairePackage.diagnosticPolicy || '')}</p>
-                <ul>${questionItems}</ul>
-            </details>
             <form class="gigabuddy-return-card" data-gigabuddy-return-form>
                 <div>
                     <strong>Owner/admin</strong>
