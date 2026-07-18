@@ -42,6 +42,51 @@ The return PIN is a local owner/admin recovery gate for the visible GigaBuddy sh
 
 Sensitive diagnostics, such as anxiety/confidence risk, must not be shown to the novice as labels. They may inform support style internally, but outward language should describe the format of help, level of support, and work style.
 
+## Employee config schema (state + interface attributes)
+
+Since v6.74.0 each employee entry in the state carries a full mutable config plus
+interface personalization. `ouroboros/gigabuddy_state.py` owns the shape, string
+caps, allow-lists, and the novice-safe view projection.
+
+Employee state (per employee):
+
+- `profile` — `name`, `role`, `department`, `experience`, `interests[]` (bounded).
+- `stage` — current mentorship stage (`advisor` / `assistant` / `partner`).
+- `track` — the adaptation track: an ordered list of stage entries
+  (`id`, `label`, `title`, `status` ∈ `planned` / `active` / `done`) built for
+  this specific newcomer. Progress is derived from the track (done = full,
+  active = half).
+- `progress_pct` — aggregated track progress metric.
+- `behavior_versions` + `active_behavior_version_id` — behavior version model.
+- `rollback_history` — internal record of behavior rollbacks (kept out of the
+  novice view).
+- `mentor_notes` — internal mentor text (kept out of the novice view).
+- `internal_signals` — sensitive diagnostics (never shown to the novice).
+
+Interface attributes (`interface`, hyper-personification — the shell adapts per
+employee):
+
+- `theme` — one of an allow-list (`neutral`, `soft-cat`, `strict-terminal`,
+  `warm-sunrise`, `ocean-calm`); an unknown theme falls back to `neutral`.
+- `accent_color` — a 3/6-digit hex color kept **inside the design system**; the
+  default is the primary crimson `#c93545`, and an invalid value falls back to
+  it, so a config can never inject arbitrary CSS.
+- `mascot` — a short avatar/mascot glyph.
+- `tone` — `formal` / `friendly` / `playful`.
+- `layout` — an ordered list of visible panel sections; unknown identifiers are
+  dropped and every known section is kept visible (a layout can reorder or hide
+  sections but never blank the panel).
+
+The novice-safe view (`build_gigabuddy_view`) surfaces `profile`, `interface`,
+`track`, `stage`, and track-derived `progressPct`, but never `internal_signals`,
+`mentor_notes`, or `rollback_history`. The frontend applies the interface block
+to the product shell through the existing `/api/settings` seam: the panel refresh
+sets `body[data-gigabuddy-theme]`, `body[data-gigabuddy-tone]`, and a validated
+`--gigabuddy-accent` CSS custom property — no frozen gateway route and no
+`contracts.py` edit are introduced. Because one employee = one config, a later
+increment (config-per-employee switching) can load a config and change both
+behavior and the visible appearance.
+
 ## Mutable state and mentor/admin actions
 
 The live state file is runtime-local and synthetic by default:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import pathlib
+import re
 import time
 from typing import Any, Callable, Dict
 
@@ -31,9 +32,34 @@ MAX_EVENTS = 80
 MAX_TASKS_PER_EMPLOYEE = 24
 MAX_MENTOR_NOTES = 12
 MAX_BEHAVIOR_VERSIONS = 8
+MAX_TRACK_STAGES = 12
+MAX_ROLLBACK_HISTORY = 16
+MAX_INTERESTS = 8
+MAX_LAYOUT_SECTIONS = 16
 MAX_TEXT_CHARS = 320
 MAX_NOTE_CHARS = 600
 MAX_SUMMARY_CHARS = 900
+
+# Interface personalization (hyper-personification). These are presentation-only
+# attributes that adapt the product shell per employee; they are NOT sensitive
+# diagnostics and ARE safe to surface in the novice view.
+ALLOWED_THEMES = ("neutral", "soft-cat", "strict-terminal", "warm-sunrise", "ocean-calm")
+ALLOWED_TONES = ("formal", "friendly", "playful")
+DEFAULT_ACCENT = "#c93545"
+# The panel section identifiers a layout config may order/hide.
+LAYOUT_SECTIONS = (
+    "hero",
+    "stage",
+    "progress",
+    "tasks",
+    "next_step",
+    "readiness",
+    "questionnaire",
+)
+# Accent must stay within the design system: a 3/6-digit hex color. Empty or
+# invalid falls back to the primary crimson so a config can never inject
+# arbitrary CSS.
+_HEX_ACCENT_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 ALLOWED_OPS = frozenset({
     "get_state",
     "select_employee",
@@ -68,6 +94,155 @@ def _now_id(prefix: str) -> str:
 def _stage(value: Any, default: str = "advisor") -> str:
     candidate = str(value or "").strip().lower()
     return candidate if candidate in STAGES else default
+
+
+def _theme(value: Any, default: str = "neutral") -> str:
+    candidate = _slug(value, default)
+    return candidate if candidate in ALLOWED_THEMES else default
+
+
+def _tone(value: Any, default: str = "friendly") -> str:
+    candidate = str(value or "").strip().lower()
+    return candidate if candidate in ALLOWED_TONES else default
+
+
+def _accent(value: Any, default: str = DEFAULT_ACCENT) -> str:
+    candidate = str(value or "").strip()
+    return candidate if _HEX_ACCENT_RE.fullmatch(candidate) else default
+
+
+def _mascot(value: Any, default: str = "✨") -> str:
+    text = str(value or "").strip()
+    return (text[:8] or default) if text else default
+
+
+def _layout(value: Any) -> list[str]:
+    """Return a validated ordered list of visible panel sections.
+
+    Unknown identifiers are dropped and every known section not listed is kept
+    visible by appending it in canonical order — so a layout config can reorder
+    or hide sections but can never blank the panel or inject unknown keys.
+    """
+    order: list[str] = []
+    if isinstance(value, list):
+        for item in value[:MAX_LAYOUT_SECTIONS]:
+            key = _slug(item, "")
+            if key in LAYOUT_SECTIONS and key not in order:
+                order.append(key)
+    for section in LAYOUT_SECTIONS:
+        if section not in order:
+            order.append(section)
+    return order
+
+
+def _default_interface(theme: str, accent: str, mascot: str, tone: str) -> Dict[str, Any]:
+    return {
+        "theme": _theme(theme),
+        "accent_color": _accent(accent),
+        "mascot": _mascot(mascot),
+        "tone": _tone(tone),
+        "layout": list(LAYOUT_SECTIONS),
+    }
+
+
+def _normalize_interface(raw: Any, fallback: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        raw = {}
+    fb = fallback if isinstance(fallback, dict) else {}
+    return {
+        "theme": _theme(raw.get("theme") or fb.get("theme"), "neutral"),
+        "accent_color": _accent(raw.get("accent_color") or fb.get("accent_color")),
+        "mascot": _mascot(raw.get("mascot") or fb.get("mascot")),
+        "tone": _tone(raw.get("tone") or fb.get("tone")),
+        "layout": _layout(raw.get("layout") if isinstance(raw.get("layout"), list) else fb.get("layout")),
+    }
+
+
+def _default_profile(name: str, role: str, department: str, experience: str, interests: list[str]) -> Dict[str, Any]:
+    return {
+        "name": _clip(name, 80),
+        "role": _clip(role, 120),
+        "department": _clip(department, 120),
+        "experience": _clip(experience, MAX_NOTE_CHARS),
+        "interests": [_clip(item, 60) for item in interests if _clip(item, 60)][:MAX_INTERESTS],
+    }
+
+
+def _normalize_profile(raw: Any, fallback: Dict[str, Any], emp: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        raw = {}
+    fb = fallback if isinstance(fallback, dict) else {}
+    interests_raw = raw.get("interests") if isinstance(raw.get("interests"), list) else fb.get("interests", [])
+    return {
+        "name": _clip(raw.get("name") or fb.get("name") or emp.get("name"), 80),
+        "role": _clip(raw.get("role") or fb.get("role") or emp.get("role"), 120),
+        "department": _clip(raw.get("department") or fb.get("department"), 120),
+        "experience": _clip(raw.get("experience") or fb.get("experience"), MAX_NOTE_CHARS),
+        "interests": [_clip(item, 60) for item in interests_raw if _clip(item, 60)][:MAX_INTERESTS],
+    }
+
+
+def _track_stage(stage_id: str, title: str, status: str = "planned") -> Dict[str, Any]:
+    sid = _stage(stage_id)
+    st = _clip(status, 32) or "planned"
+    if st not in {"planned", "active", "done"}:
+        st = "planned"
+    return {
+        "id": sid,
+        "label": STAGE_LABELS[sid],
+        "title": _clip(title) or STAGE_LABELS[sid],
+        "status": st,
+    }
+
+
+def _default_track(stage: str) -> list[Dict[str, Any]]:
+    """Build a default advisor->assistant->partner adaptation track keyed off the
+    employee's current stage (stages up to current are done, current is active)."""
+    current = _stage(stage)
+    order = list(STAGES)
+    idx = order.index(current)
+    titles = {
+        "advisor": "Онбординг с высокой опорой",
+        "assistant": "Совместные задачи и разбор",
+        "partner": "Самостоятельная работа с challenge-mode",
+    }
+    track = []
+    for i, sid in enumerate(order):
+        if i < idx:
+            status = "done"
+        elif i == idx:
+            status = "active"
+        else:
+            status = "planned"
+        track.append(_track_stage(sid, titles[sid], status))
+    return track
+
+
+def _normalize_track(raw: Any, fallback_stage: str) -> list[Dict[str, Any]]:
+    if not isinstance(raw, list) or not raw:
+        return _default_track(fallback_stage)
+    normalized: list[Dict[str, Any]] = []
+    for item in raw[:MAX_TRACK_STAGES]:
+        if not isinstance(item, dict):
+            continue
+        normalized.append(
+            _track_stage(item.get("id"), item.get("title"), _clip(item.get("status"), 32) or "planned")
+        )
+    return normalized or _default_track(fallback_stage)
+
+
+def _track_progress_pct(track: list[Dict[str, Any]]) -> int:
+    """Aggregate track progress: done counts full, active counts half."""
+    if not track:
+        return 0
+    score = 0.0
+    for stage in track:
+        status = stage.get("status")
+        if status == "done":
+            score += 1.0
+        elif status == "active":
+            score += 0.5
+    return max(0, min(100, round(score / len(track) * 100)))
 
 
 def _state_path(drive_root: pathlib.Path | str) -> pathlib.Path:
@@ -109,6 +284,12 @@ def _default_employee(
     progress: int,
     tasks: list[Dict[str, Any]],
     questionnaire_package_id: str,
+    department: str = "",
+    experience: str = "",
+    interests: list[str] | None = None,
+    accent: str = DEFAULT_ACCENT,
+    tone: str = "friendly",
+    mentor_notes: list[str] | None = None,
 ) -> Dict[str, Any]:
     stage_id = _stage(stage)
     behavior = _behavior("v1", stage_id, "warm_supportive", theme, "initial_demo_profile")
@@ -124,9 +305,13 @@ def _default_employee(
         "next_step": "Разобрать безопасный следующий шаг",
         "readiness": "Требуется подтверждение наставника",
         "tasks": tasks[:MAX_TASKS_PER_EMPLOYEE],
-        "mentor_notes": [],
+        "mentor_notes": list(mentor_notes or [])[:MAX_MENTOR_NOTES],
         "behavior_versions": [behavior],
         "active_behavior_version_id": behavior["id"],
+        "rollback_history": [],
+        "profile": _default_profile(name, role, department, experience, list(interests or [])),
+        "interface": _default_interface(theme, accent, avatar, tone),
+        "track": _default_track(stage_id),
         "internal_signals": {
             "support_need": "internal_only",
             "confidence_risk": "hidden_from_novice",
@@ -175,6 +360,11 @@ def default_gigabuddy_state() -> Dict[str, Any]:
                 stage="advisor",
                 progress=35,
                 questionnaire_package_id="people-culture-base",
+                department="Люди и культура",
+                experience="Первая роль в найме; сильна в коммуникации, осваивает внутренние регламенты.",
+                interests=["котики", "иллюстрация", "командные ритуалы"],
+                accent="#e8799f",
+                tone="playful",
                 tasks=[
                     _task("alice-1", "Познакомиться с процессом согласования вакансий", status="active"),
                     _task("alice-2", "Подготовить черновик ответа заказчику"),
@@ -190,6 +380,11 @@ def default_gigabuddy_state() -> Dict[str, Any]:
                 stage="assistant",
                 progress=52,
                 questionnaire_package_id="dev-transfer-base",
+                department="Инженерия платформы",
+                experience="Опытный разработчик; переходит между командами, нужен быстрый деловой тон.",
+                interests=["распределённые системы", "надёжность", "code review"],
+                accent="#5ad1c9",
+                tone="formal",
                 tasks=[
                     _task("leo-1", "Собрать карту сервисов новой команды", status="active"),
                     _task("leo-2", "Проверить процесс code review и релиза"),
@@ -204,6 +399,7 @@ def default_gigabuddy_state() -> Dict[str, Any]:
                 stage="advisor",
                 progress=0,
                 questionnaire_package_id="people-culture-base",
+                tone="friendly",
                 tasks=[_task("blank-1", "Провести первичное диагностическое интервью", status="active")],
             ),
         },
@@ -277,6 +473,24 @@ def _normalize_employee(raw: Any, fallback: Dict[str, Any]) -> Dict[str, Any]:
     emp["active_behavior_version_id"] = active_version if active_version in valid_ids else normalized_versions[-1]["id"]
     signals = raw.get("internal_signals") if isinstance(raw.get("internal_signals"), dict) else emp.get("internal_signals", {})
     emp["internal_signals"] = {str(k)[:80]: _clip(v, MAX_NOTE_CHARS) for k, v in signals.items()}
+    emp["profile"] = _normalize_profile(raw.get("profile"), emp.get("profile"), emp)
+    emp["interface"] = _normalize_interface(raw.get("interface"), emp.get("interface") or {})
+    emp["track"] = _normalize_track(
+        raw.get("track") if isinstance(raw.get("track"), list) else emp.get("track"),
+        emp["stage"],
+    )
+    rollback_raw = raw.get("rollback_history") if isinstance(raw.get("rollback_history"), list) else emp.get("rollback_history", [])
+    rollback_history: list[Dict[str, Any]] = []
+    for item in rollback_raw[-MAX_ROLLBACK_HISTORY:]:
+        if not isinstance(item, dict):
+            continue
+        rollback_history.append({
+            "version_id": _slug(item.get("version_id"), "v1"),
+            "stage": _stage(item.get("stage"), emp["stage"]),
+            "reason": _clip(item.get("reason"), MAX_NOTE_CHARS) or "rollback",
+            "at": _clip(item.get("at"), 80) or utc_now_iso(),
+        })
+    emp["rollback_history"] = rollback_history[-MAX_ROLLBACK_HISTORY:]
     return emp
 
 
@@ -360,6 +574,13 @@ def build_gigabuddy_view(state: Dict[str, Any]) -> Dict[str, Any]:
     versions = emp.get("behavior_versions", [])
     active_version = next((v for v in versions if v.get("id") == emp.get("active_behavior_version_id")), versions[-1] if versions else {})
     package = state["questionnaire_packages"].get(emp.get("questionnaire_package_id"), {})
+    interface = emp.get("interface") or _default_interface(emp.get("theme", "neutral"), DEFAULT_ACCENT, emp.get("avatar", "✨"), "friendly")
+    profile = emp.get("profile") or {}
+    track = emp.get("track") or []
+    # Progress is derived from the adaptation track; fall back to the stored
+    # per-employee metric only when the track is empty.
+    track_progress = _track_progress_pct(track)
+    progress_pct = track_progress if track else int(emp.get("progress_pct", 0) or 0)
     return {
         "productName": "ГигаБадди",
         "subtitle": "персональный ИИ-наставник адаптации",
@@ -373,15 +594,33 @@ def build_gigabuddy_view(state: Dict[str, Any]) -> Dict[str, Any]:
             "name": emp["name"],
             "role": emp["role"],
             "avatar": emp.get("avatar", "✨"),
-            "theme": emp.get("theme", "neutral"),
+            "theme": interface.get("theme", emp.get("theme", "neutral")),
         },
+        "profile": {
+            "name": profile.get("name", emp.get("name", "")),
+            "role": profile.get("role", emp.get("role", "")),
+            "department": profile.get("department", ""),
+            "experience": profile.get("experience", ""),
+            "interests": list(profile.get("interests", []))[:MAX_INTERESTS],
+        },
+        "interface": {
+            "theme": interface.get("theme", "neutral"),
+            "accentColor": interface.get("accent_color", DEFAULT_ACCENT),
+            "mascot": interface.get("mascot", emp.get("avatar", "✨")),
+            "tone": interface.get("tone", "friendly"),
+            "layout": list(interface.get("layout", list(LAYOUT_SECTIONS))),
+        },
+        "track": [
+            {"id": item.get("id", ""), "label": item.get("label", ""), "title": item.get("title", ""), "status": item.get("status", "planned")}
+            for item in track
+        ],
         "stage": {
             "id": stage_id,
             "label": STAGE_LABELS[stage_id],
             "next": STAGE_LABELS[next_id],
             "helpLevel": _stage_help(stage_id),
         },
-        "progressPct": emp.get("progress_pct", 0),
+        "progressPct": progress_pct,
         "nextStep": emp.get("next_step", ""),
         "readiness": emp.get("readiness", ""),
         "behaviorVersion": f"{active_version.get('id', 'v1')} · {active_version.get('stage_label', STAGE_LABELS[stage_id])}",
@@ -450,6 +689,28 @@ def _op_add_task(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, An
     return {"state": state, "audit": {"op": "add_task", "employee_id": emp["id"], "task_id": task["id"], "result": "success"}}
 
 
+def _sync_track_to_stage(emp: Dict[str, Any], stage_id: str) -> None:
+    """Move the adaptation track so stages before the current one are done, the
+    current stage is active, and later stages stay planned. If the employee has
+    no track yet, seed a default one."""
+    track = emp.get("track") or _default_track(stage_id)
+    order = list(STAGES)
+    try:
+        idx = order.index(_stage(stage_id))
+    except ValueError:
+        idx = 0
+    for item in track:
+        sid = _stage(item.get("id"))
+        pos = order.index(sid) if sid in order else 0
+        if pos < idx:
+            item["status"] = "done"
+        elif pos == idx:
+            item["status"] = "active"
+        else:
+            item["status"] = "planned"
+    emp["track"] = track
+
+
 def _transition(state: Dict[str, Any], target_stage: str, reason: str, op: str) -> Dict[str, Any]:
     emp = _active_employee(state)
     old_stage = _stage(emp.get("stage"))
@@ -460,6 +721,8 @@ def _transition(state: Dict[str, Any], target_stage: str, reason: str, op: str) 
     emp.setdefault("behavior_versions", []).append(version)
     emp["behavior_versions"] = emp["behavior_versions"][-MAX_BEHAVIOR_VERSIONS:]
     emp["active_behavior_version_id"] = version["id"]
+    _sync_track_to_stage(emp, new_stage)
+    emp["progress_pct"] = _track_progress_pct(emp.get("track", []))
     _append_event(state, _event(op, emp["id"], reason or op, stage_from=old_stage, stage_to=new_stage))
     return {"state": state, "audit": {"op": op, "employee_id": emp["id"], "stage_from": old_stage, "stage_to": new_stage, "result": "success"}}
 
@@ -494,6 +757,15 @@ def _op_rollback(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, An
     emp["stage"] = _stage(target.get("stage"), old_stage)
     emp["theme"] = _clip(target.get("theme"), 80) or emp.get("theme", "neutral")
     emp["readiness"] = "Стиль откатан; прогресс и задачи сохранены"
+    _sync_track_to_stage(emp, emp["stage"])
+    history = emp.setdefault("rollback_history", [])
+    history.append({
+        "version_id": target["id"],
+        "stage": emp["stage"],
+        "reason": _clip(target.get("reason"), MAX_NOTE_CHARS) or "rollback",
+        "at": utc_now_iso(),
+    })
+    emp["rollback_history"] = history[-MAX_ROLLBACK_HISTORY:]
     _append_event(state, _event("rollback", emp["id"], "Откат поведения без потери прогресса", stage_from=old_stage, stage_to=emp["stage"]))
     return {"state": state, "audit": {"op": "rollback", "employee_id": emp["id"], "stage_from": old_stage, "stage_to": emp["stage"], "result": "success"}}
 

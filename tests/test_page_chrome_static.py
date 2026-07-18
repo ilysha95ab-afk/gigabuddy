@@ -199,6 +199,36 @@ def test_gigabuddy_product_mode_is_reversible_ui_overlay():
 
 
 
+def test_gigabuddy_interface_personalization_surface():
+    """The panel reads live profile/track state and applies interface attributes
+    to the shell through the settings seam (no frozen route / contracts edit)."""
+    gigabuddy = _read("web/modules/gigabuddy.js")
+    css = _read("web/style.css")
+    contracts = _read("ouroboros/gateway/contracts.py")
+
+    # Interface personalization is applied to the shell (theme/tone/accent) via
+    # body data attributes + a CSS custom property — validated, no inline styles.
+    assert "applyGigaBuddyInterface" in gigabuddy
+    assert "body.dataset.gigabuddyTheme" in gigabuddy
+    assert "body.dataset.gigabuddyTone" in gigabuddy
+    assert "setProperty('--gigabuddy-accent'" in gigabuddy
+    # Only CSS-custom-property mutation is allowed; no static inline style props.
+    for banned in ["style.color", "style.display", "style.background", "style.width"]:
+        assert banned not in gigabuddy
+    # The panel renders live profile + adaptation track (not static copy only).
+    assert "state.profile" in gigabuddy and "state.track" in gigabuddy
+    assert "gigabuddy-adapt-track" in gigabuddy and "gigabuddy-chip" in gigabuddy
+    assert "Профиль новичка" in gigabuddy
+    # Interface is applied on refresh and reset when leaving product mode.
+    assert "applyGigaBuddyInterface(normalizeView(view).interface" in gigabuddy
+    assert "resetGigaBuddyInterface" in gigabuddy
+    # Accent stays inside the design system via a CSS variable with crimson fallback.
+    assert "--gigabuddy-accent" in css
+    assert "gigabuddy-adapt-track" in css and "gigabuddy-chip" in css
+    # Still no frozen /api/state contract churn for the personalization data.
+    assert "gigabuddy" not in contracts.lower()
+
+
 def test_server_navigation_and_chat_static_contracts():
     server_source = _read("server.py")
     state_source = _read("ouroboros/gateway/state.py")

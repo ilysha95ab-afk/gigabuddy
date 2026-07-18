@@ -25,6 +25,25 @@ export const GIGABUDDY_DEMO_STATE = {
         avatar: '🐾',
         theme: 'soft-cat',
     },
+    profile: {
+        name: 'Алиса',
+        role: 'HR · Люди и культура',
+        department: 'Люди и культура',
+        experience: 'Первая роль в найме; сильна в коммуникации, осваивает внутренние регламенты.',
+        interests: ['котики', 'иллюстрация', 'командные ритуалы'],
+    },
+    interface: {
+        theme: 'soft-cat',
+        accentColor: '#e8799f',
+        mascot: '🐾',
+        tone: 'playful',
+        layout: ['hero', 'stage', 'progress', 'tasks', 'next_step', 'readiness', 'questionnaire'],
+    },
+    track: [
+        { id: 'advisor', label: 'Советчик', title: 'Онбординг с высокой опорой', status: 'active' },
+        { id: 'assistant', label: 'Помощник', title: 'Совместные задачи и разбор', status: 'planned' },
+        { id: 'partner', label: 'Партнёр', title: 'Самостоятельная работа с challenge-mode', status: 'planned' },
+    ],
     stage: {
         id: 'advisor',
         label: 'Советчик',
@@ -64,6 +83,7 @@ export function applyGigaBuddyMode(settings = {}, root = document) {
     const enabled = isGigaBuddyMode(mode);
     document.body.dataset.productMode = enabled ? GIGABUDDY_MODE : '';
     document.body.classList.toggle('product-gigabuddy', enabled);
+    if (!enabled) resetGigaBuddyInterface();
     root.querySelectorAll('[data-gigabuddy-title], #page-chat .chat-page-header .app-page-title').forEach((el) => {
         if (!el.dataset.defaultTitle) el.dataset.defaultTitle = el.textContent || 'Chat';
         el.textContent = enabled ? GIGABUDDY_DEMO_STATE.productName : (el.dataset.defaultTitle || 'Chat');
@@ -81,6 +101,9 @@ function normalizeView(state = {}) {
         ...GIGABUDDY_DEMO_STATE,
         ...source,
         employee: { ...GIGABUDDY_DEMO_STATE.employee, ...(source.employee || {}) },
+        profile: { ...GIGABUDDY_DEMO_STATE.profile, ...(source.profile || {}) },
+        interface: { ...GIGABUDDY_DEMO_STATE.interface, ...(source.interface || {}) },
+        track: Array.isArray(source.track) ? source.track : GIGABUDDY_DEMO_STATE.track,
         stage: { ...GIGABUDDY_DEMO_STATE.stage, ...(source.stage || {}) },
         tasks: Array.isArray(source.tasks) ? source.tasks : GIGABUDDY_DEMO_STATE.tasks,
         employees: Array.isArray(source.employees) ? source.employees : GIGABUDDY_DEMO_STATE.employees,
@@ -88,6 +111,38 @@ function normalizeView(state = {}) {
         events: Array.isArray(source.events) ? source.events : [],
         questionnairePackage: { ...GIGABUDDY_DEMO_STATE.questionnairePackage, ...(source.questionnairePackage || {}) },
     };
+}
+
+const HEX_ACCENT_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+const ALLOWED_INTERFACE_THEMES = ['neutral', 'soft-cat', 'strict-terminal', 'warm-sunrise', 'ocean-calm'];
+const ALLOWED_TONES = ['formal', 'friendly', 'playful'];
+
+/**
+ * Apply per-employee interface personalization (theme / accent / mascot / tone)
+ * to the product shell. Uses body data attributes + a CSS custom property, so
+ * no arbitrary inline styling reaches the DOM. Values are validated so a config
+ * can never inject unexpected CSS.
+ */
+export function applyGigaBuddyInterface(iface = {}, root = document) {
+    const body = document.body;
+    const theme = ALLOWED_INTERFACE_THEMES.includes(iface.theme) ? iface.theme : 'neutral';
+    const tone = ALLOWED_TONES.includes(iface.tone) ? iface.tone : 'friendly';
+    const accent = HEX_ACCENT_RE.test(String(iface.accentColor || '')) ? iface.accentColor : '';
+    body.dataset.gigabuddyTheme = theme;
+    body.dataset.gigabuddyTone = tone;
+    if (accent) {
+        body.style.setProperty('--gigabuddy-accent', accent);
+    } else {
+        body.style.removeProperty('--gigabuddy-accent');
+    }
+    void root;
+}
+
+export function resetGigaBuddyInterface() {
+    const body = document.body;
+    delete body.dataset.gigabuddyTheme;
+    delete body.dataset.gigabuddyTone;
+    body.style.removeProperty('--gigabuddy-accent');
 }
 
 function renderEvents(state) {
@@ -110,19 +165,32 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
     `).join('');
     const questionItems = (state.questionnairePackage.questions || []).map((question) => `<li>${escapeHtml(question)}</li>`).join('');
     const progress = Math.max(0, Math.min(100, Number(state.progressPct || 0)));
+    const iface = state.interface || {};
+    const profile = state.profile || {};
+    const mascot = iface.mascot || employee.avatar || '✨';
+    const interestChips = (profile.interests || []).map((interest) => `<span class="gigabuddy-chip">${escapeHtml(interest)}</span>`).join('');
+    const trackStages = (Array.isArray(state.track) ? state.track : []).map((item) => `
+        <li class="gigabuddy-adapt-stage" data-status="${escapeHtml(item.status || 'planned')}">
+            <span class="gigabuddy-adapt-dot" aria-hidden="true">${item.status === 'done' ? '✓' : item.status === 'active' ? '●' : '○'}</span>
+            <span class="gigabuddy-adapt-label">${escapeHtml(item.label || '')}</span>
+            <span class="gigabuddy-adapt-title">${escapeHtml(item.title || '')}</span>
+        </li>
+    `).join('');
     return `
-        <aside class="gigabuddy-track-panel" aria-label="Адаптационный трек ГигаБадди" data-gigabuddy-track-panel>
-            <div class="gigabuddy-track-hero" data-theme="${escapeHtml(employee.theme || 'default')}">
-                <div class="gigabuddy-avatar" aria-hidden="true">${escapeHtml(employee.avatar || '✨')}</div>
+        <aside class="gigabuddy-track-panel" aria-label="Адаптационный трек ГигаБадди" data-gigabuddy-track-panel data-theme="${escapeHtml(iface.theme || employee.theme || 'neutral')}" data-tone="${escapeHtml(iface.tone || 'friendly')}">
+            <div class="gigabuddy-track-hero" data-theme="${escapeHtml(iface.theme || employee.theme || 'default')}">
+                <div class="gigabuddy-avatar" aria-hidden="true">${escapeHtml(mascot)}</div>
                 <div>
                     <div class="gigabuddy-eyebrow">Адаптационный трек</div>
-                    <h3>${escapeHtml(employee.name || 'Новичок')}</h3>
-                    <p>${escapeHtml(employee.role || 'Направление адаптации')}</p>
+                    <h3>${escapeHtml(profile.name || employee.name || 'Новичок')}</h3>
+                    <p>${escapeHtml(profile.role || employee.role || 'Направление адаптации')}</p>
                 </div>
             </div>
             <div class="gigabuddy-demo-context">
-                <span>Демо-профиль</span>
-                <p>${escapeHtml(`${employee.avatar || '✨'} ${employee.name || 'Новичок'} · ${employee.role || 'Направление адаптации'}`)}</p>
+                <span>Профиль новичка</span>
+                <p>${escapeHtml(`${mascot} ${profile.name || employee.name || 'Новичок'}${profile.department ? ' · ' + profile.department : ''}`)}</p>
+                ${profile.experience ? `<p class="gigabuddy-profile-experience">${escapeHtml(profile.experience)}</p>` : ''}
+                ${interestChips ? `<div class="gigabuddy-chips">${interestChips}</div>` : ''}
             </div>
             <div class="gigabuddy-stage-card">
                 <span class="gigabuddy-stage-label">Я сейчас: ${escapeHtml(stage.label || 'Советчик')}</span>
@@ -133,6 +201,7 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
                 <strong>${progress}%</strong>
             </div>
             <progress class="gigabuddy-progress-bar" max="100" value="${progress}" aria-label="Прогресс адаптации: ${progress}%"></progress>
+            ${trackStages ? `<ul class="gigabuddy-adapt-track" aria-label="Стадии адаптационного трека">${trackStages}</ul>` : ''}
             <ul class="gigabuddy-track-list">${taskItems}</ul>
             <div class="gigabuddy-mentor-boundary">
                 <span>Наставник</span>
@@ -184,7 +253,9 @@ export async function refreshGigaBuddyPanel(root = document) {
     const panel = root.querySelector('[data-gigabuddy-track-panel]');
     if (!panel || document.body.dataset.productMode !== GIGABUDDY_MODE) return null;
     const result = await apiClient.gigaBuddy('get_state');
-    panel.outerHTML = renderGigaBuddyTrackPanel(result.view || GIGABUDDY_DEMO_STATE);
+    const view = result.view || GIGABUDDY_DEMO_STATE;
+    panel.outerHTML = renderGigaBuddyTrackPanel(view);
+    applyGigaBuddyInterface(normalizeView(view).interface, root);
     return result.view || null;
 }
 
