@@ -70,6 +70,21 @@ def test_persona_hard_boundary_content_present(tmp_path, monkeypatch):
     assert "gigabuddy/employees" in persona
 
 
+def test_persona_hard_boundary_bans_developer_mode_talk(tmp_path, monkeypatch):
+    """v6.80.1: the hard role boundary must EXPLICITLY forbid mentioning the
+    developer mode/processes to the newcomer (product mode, dev mode, /restart,
+    commits, versions, internal development). Additive to the B1 boundary."""
+    monkeypatch.setenv("OUROBOROS_PRODUCT_MODE", "gigabuddy")
+    persona = build_gigabuddy_persona(tmp_path)
+    assert persona
+    low = persona.lower()
+    assert "product mode" in low or "продуктовый режим" in low
+    assert "dev-режим" in low or "режим/процессы разработчика" in low
+    assert "/restart" in low or "перезапуск" in low
+    assert "коммит" in low  # commits
+    assert "верси" in low   # versions
+
+
 def test_persona_is_not_injected_without_product_mode(tmp_path, monkeypatch):
     monkeypatch.delenv("OUROBOROS_PRODUCT_MODE", raising=False)
     assert gigabuddy_persona_section(_novice_task(), tmp_path) == ""

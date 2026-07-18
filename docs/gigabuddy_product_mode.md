@@ -338,6 +338,42 @@ methodology is tightly coupled to the persona already in core.
   the newcomer as labels; `internal_signals` / mentor notes / rollback history
   still never reach the persona (pinned by tests).
 
+## Novice `/clean` (visual chat reset) + hardened role boundary (v6.80.1)
+
+The newcomer can visually reset their own chat, and the persona is stopped from
+ever mentioning the developer plumbing to them.
+
+- **`/clean` — visual-only transcript reset.** Typing `/clean` in the novice
+  chat is intercepted INSIDE the novice thread on the frontend
+  (`web/modules/chat.js`, gated on the instance's `gigabuddy-novice` `projectId`).
+  It is **not** a runtime slash like `/restart`/`/panic`: it never reaches the
+  supervisor and registers no new supervisor command. It wipes ONLY the visible
+  feed plus this thread's in-memory + session state (`persistedHistory`,
+  `seenMessageKeys`, `messageKeyOrder`, the `sessionStorage` history key), keeps
+  the typing indicator, and shows ONE fixed, impersonal, EPHEMERAL greeting
+  («Здравствуйте! Готов продолжить — с чего начнём?») — a constant string, never
+  model-generated, never persisted.
+- **Durable adaptation state is never touched.** Profile / stage / real
+  `track.steps` / progress in `gigabuddy_state` are left intact, so the newcomer
+  cannot reset their track with this command. Server `chat.jsonl` is also left
+  intact as the audit trail — so `/clean` is a **per-session visual clear**; a
+  full page reload re-syncs history from the server by design. (A durable
+  cross-reload clear would need a presentation-only clear-cursor on the history
+  endpoint; it is deliberately out of scope here per the owner's "визуальная
+  очистка" ask and minimalism, P7.)
+- **Hardened persona boundary.** `build_gigabuddy_persona`'s HARD role boundary is
+  extended additively with an EXPLICIT ban on mentioning the developer
+  mode/processes to the newcomer — product mode / dev mode, `/restart`, commits,
+  versions, internal development, mode switching — on top of the existing B1
+  «never mention Ouroboros / architecture / versions / evolution» boundary. For
+  the newcomer, those technical layers simply do not exist.
+
+Boundaries preserved: form Б (core/persona + frontend only, no external skill /
+skill-review); reducer stays view-pure; ONE unified awareness (BIBLE P1); the
+double gate (product off / non-novice project → unchanged) and novice-safe
+boundaries do not regress; Panic + PIN-return stay visible; no frozen contracts
+(`contracts.py` / `StateResponse` / routes) or `BIBLE.md` touched.
+
 ## Next implementation increment
 
 1. Add a proper mentor/admin surface for stage approval, task injection, profile switching, behavior rollback, and demo acceleration (Telegram first; a clearly separated admin panel is acceptable for filming).

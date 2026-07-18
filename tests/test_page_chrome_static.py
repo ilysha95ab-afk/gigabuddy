@@ -351,6 +351,38 @@ def test_gigabuddy_left_adaptation_track_is_live_and_expandable():
     assert ".style." not in left  # renderer emits classes/markup, not inline styles
 
 
+def test_gigabuddy_novice_clean_command_is_visual_only():
+    """v6.80.1: `/clean` is intercepted INSIDE the novice thread (this instance's
+    projectId is the novice project) as a VISUAL-only transcript wipe. It never
+    reaches the supervisor (not a runtime slash), never touches durable
+    gigabuddy_state, and returns a FIXED neutral greeting as an EPHEMERAL bubble."""
+    chat = _read("web/modules/chat.js")
+
+    # Fixed, impersonal greeting constant + novice project id, both declared.
+    assert "GIGABUDDY_NOVICE_PROJECT_ID = 'gigabuddy-novice'" in chat
+    assert "const GIGABUDDY_CLEAN_GREETING = " in chat
+    # The interception is gated to the novice thread and fires before any send.
+    assert "isNoviceThread() && text === '/clean'" in chat
+    assert "clearNoviceTranscript();" in chat
+    # The clear helper wipes ONLY visible/session state, keeps the typing bubble,
+    # and shows the fixed greeting as an ephemeral (never-persisted) bubble.
+    clear_start = chat.index("function clearNoviceTranscript")
+    clear_end = chat.index("\n    }", clear_start)
+    clear = chat[clear_start:clear_end]
+    assert "persistedHistory.length = 0" in clear
+    assert "seenMessageKeys.clear()" in clear
+    assert "sessionStorage.removeItem(storeKey(CHAT_STORAGE_KEY))" in clear
+    assert "typing-bubble" in clear  # keeps the typing indicator
+    assert "GIGABUDDY_CLEAN_GREETING" in clear
+    assert "ephemeral: true" in clear  # greeting is not persisted to chat.jsonl
+    # It must NOT call any reducer op / touch durable adaptation state.
+    for durable in ["set_track", "record_progress", "load_profile", "apply_gigabuddy_action", "_action"]:
+        assert durable not in clear
+    # The greeting stays impersonal — no name/stage interpolation.
+    greeting_line = next(l for l in chat.splitlines() if "GIGABUDDY_CLEAN_GREETING = " in l)
+    assert "${" not in greeting_line  # a fixed string, not a template
+
+
 def test_gigabuddy_b3_neutral_start_and_profile_parsing(tmp_path=None):
     """B3 (v6.79.0): a fresh install is the NEUTRAL, nameless novice — the
     synthetic Alice default is gone from both the backend reducer default and the

@@ -30,6 +30,14 @@ export function liveLineRowToggleKey(target, selection = null) {
 const CHAT_STORAGE_KEY = 'ouro_chat';
 const CHAT_INPUT_HISTORY_KEY = 'ouro_chat_input_history';
 const CHAT_SESSION_ID_KEY = 'ouro_chat_session_id';
+// GigaBuddy novice thread (B-side, v6.80.1): the newcomer can visually clear
+// their own chat with `/clean` — a VISUAL-only wipe of the transcript. Durable
+// adaptation state (profile / stage / real track.steps / progress in
+// gigabuddy_state) is NEVER touched by this, so the newcomer cannot reset their
+// track. The greeting is a FIXED neutral string (never model-generated) and is
+// impersonal by design (no name / stage / "I remember everything").
+const GIGABUDDY_NOVICE_PROJECT_ID = 'gigabuddy-novice';
+const GIGABUDDY_CLEAN_GREETING = 'Здравствуйте! Готов продолжить — с чего начнём?';
 const MAX_PENDING_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_PENDING_ATTACHMENT_BYTES = 100 * 1024 * 1024;
@@ -2584,9 +2592,45 @@ export function createChatInstance({
         input.setSelectionRange(cursor, cursor);
     }
 
+    // GigaBuddy novice `/clean`: a VISUAL-only transcript wipe intercepted INSIDE
+    // the novice thread (this instance's projectId is the novice project). It is
+    // NOT a runtime slash like /restart — it never reaches the supervisor and
+    // never touches durable gigabuddy_state (profile/stage/track.steps/progress).
+    // It clears the visible feed + this thread's dedupe/persistence state, then
+    // shows one FIXED neutral greeting as an EPHEMERAL bubble (never persisted).
+    // NOTE: server chat.jsonl is left intact (audit trail), so a full reload
+    // re-syncs history — this is a per-session visual clear by design.
+    function isNoviceThread() {
+        return projectId === GIGABUDDY_NOVICE_PROJECT_ID;
+    }
+    function clearNoviceTranscript() {
+        // Drop every real bubble but keep the typing indicator node.
+        for (const bubble of Array.from(messagesDiv.querySelectorAll('.chat-bubble'))) {
+            if (!bubble.classList.contains('typing-bubble')) bubble.remove();
+        }
+        // Reset in-memory + session persistence for THIS thread only.
+        persistedHistory.length = 0;
+        seenMessageKeys.clear();
+        messageKeyOrder.length = 0;
+        pendingUserBubbles.clear();
+        try { sessionStorage.removeItem(storeKey(CHAT_STORAGE_KEY)); } catch {}
+        persistVisibleHistory();
+        // One fixed, impersonal, ephemeral greeting — never model-generated, never
+        // persisted (ephemeral bubbles skip persistedHistory / chat.jsonl).
+        addMessage(GIGABUDDY_CLEAN_GREETING, 'assistant', false, null, false, { ephemeral: true });
+        input.value = '';
+        resizeChatInput({ preserveStickiness: false });
+        scrollToBottomAfterLayout();
+    }
+
     async function sendMessage(planMode = false) {
         if (sendBtn.disabled) return;  // guard against Enter re-entry during async upload
         let text = input.value.trim();
+        // Novice `/clean` — intercept before any send; visual-only, durable state safe.
+        if (isNoviceThread() && text === '/clean') {
+            clearNoviceTranscript();
+            return;
+        }
         // The owner's pure typed request (before attachment lines) — captured so a
         // live card spawned by this message can name a project from it on a "turn
         // into project" conversion even before the task records its objective (P1,
