@@ -8,6 +8,7 @@ and the novice-safe view projection.
 from __future__ import annotations
 
 import copy
+import logging
 import pathlib
 import re
 import time
@@ -15,7 +16,16 @@ from typing import Any, Callable, Dict
 
 from ouroboros.utils import read_json_dict, update_json_locked, utc_now_iso
 
+log = logging.getLogger(__name__)
+
 SCHEMA_VERSION = 1
+
+# GigaBuddy novice thread (B1): a real project-backed chat_id thread so the
+# novice's messages are PARTITIONED from the developer's main chat in the UI /
+# history layer. This is a focused room within one unified Ouroboros awareness
+# (BIBLE P1) — NOT memory/privacy isolation; unified memory/identity stays intact.
+NOVICE_PROJECT_ID = "gigabuddy-novice"
+NOVICE_PROJECT_NAME = "Новичок"
 STATE_RELATIVE_PATH = pathlib.Path("state") / "gigabuddy" / "state.json"
 STAGES = ("advisor", "assistant", "partner")
 STAGE_LABELS = {
@@ -838,3 +848,35 @@ def apply_gigabuddy_action(drive_root: pathlib.Path | str, op: str, payload: Any
         state = result_box.get("state") or normalize_gigabuddy_state(state)
         audit = result_box.get("audit") or {"op": op, "employee_id": state["active_employee_id"], "result": "success"}
     return {"ok": True, "state": state, "view": build_gigabuddy_view(state), "audit": audit}
+
+
+def ensure_novice_project(drive_root: pathlib.Path | str) -> Dict[str, Any]:
+    """Registry bridge (NOT a reducer mutation): idempotently register the novice
+    thread's project so its chat_id becomes a REGISTERED project chat id.
+
+    Thread partitioning only. ``projects_registry`` stays the single lifecycle /
+    reservation SSOT; this helper never caches or duplicates that authority. It
+    calls ``create_project`` directly (idempotent for an ACTIVE project, raising
+    for a non-active/tombstoned reserved id) and fails soft to a zero descriptor
+    so an eager caller such as ``/api/state`` can never be broken by it. A
+    non-active reservation surfaces as a visible ``log.warning`` rather than a
+    silent stale live id.
+    """
+    try:
+        from ouroboros import projects_registry
+
+        project = projects_registry.create_project(
+            drive_root,
+            NOVICE_PROJECT_ID,
+            name=NOVICE_PROJECT_NAME,
+            origin="gigabuddy",
+        )
+        return {
+            "chat_id": int(project.get("chat_id") or 0),
+            "project_id": str(project.get("id") or ""),
+        }
+    except Exception as exc:  # fail-soft: never break the eager caller
+        log.warning(
+            "GigaBuddy novice project unavailable (%s): %s", NOVICE_PROJECT_ID, exc
+        )
+        return {"chat_id": 0, "project_id": ""}

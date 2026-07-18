@@ -55,6 +55,18 @@ async def api_state(request: Request) -> JSONResponse:
         # value from settings; keeping zero here makes that state explicit.
         limit = max(0.0, float(TOTAL_BUDGET_LIMIT or 0.0))
         drive_root = request_drive_root(request)
+        # GigaBuddy B1: when product mode is active, eagerly register the novice
+        # thread's project BEFORE project_chat_ids is emitted below, so its
+        # chat_id is a REGISTERED project chat id on the very first poll (the
+        # durable ordering guarantee the frontend relies on). Product-mode-gated
+        # and fail-soft — it must never affect ordinary /api/state.
+        if os.environ.get("OUROBOROS_PRODUCT_MODE", "").strip().lower() == "gigabuddy":
+            try:
+                from ouroboros.gigabuddy_state import ensure_novice_project
+
+                ensure_novice_project(drive_root)
+            except Exception:
+                log.debug("GigaBuddy novice project eager-registration skipped", exc_info=True)
         accounting_available = True
         try:
             ensure_legacy_imported(drive_root)

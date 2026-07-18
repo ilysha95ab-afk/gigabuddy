@@ -206,6 +206,51 @@ const ctx = {
 initChat(ctx);
 initFiles(ctx);
 
+// GigaBuddy B1: mount the isolated novice chat into the center slot of the
+// product-mode 3-column layout. The novice thread is a REGISTERED project
+// chat_id (thread PARTITIONING in the UI/history layer — one unified Ouroboros
+// awareness, not memory isolation). gigabuddy.js is the single get_state fetch
+// owner and publishes the descriptor via 'ouro:gigabuddy-novice-chat'.
+let gigabuddyNoviceInstance = null;
+let gigabuddyNovicePair = '';
+window.addEventListener('ouro:gigabuddy-novice-chat', (event) => {
+    const slot = document.querySelector('[data-gigabuddy-novice-chat-slot]');
+    if (!slot) return;
+    const detail = event.detail || {};
+    const chatId = Number(detail.chatId);
+    const projectId = String(detail.projectId || '');
+    // Invalid / unregistered descriptor: keep an explicit, honest placeholder.
+    if (!(chatId > 1) || !projectId) {
+        if (!gigabuddyNoviceInstance) {
+            slot.replaceChildren();
+            const ph = document.createElement('div');
+            ph.className = 'gigabuddy-novice-placeholder';
+            ph.textContent = 'Чат новичка недоступен, пока GigaBuddy-тред не зарегистрирован; может потребоваться перезапуск.';
+            slot.appendChild(ph);
+        }
+        return;
+    }
+    // Same-tick guard so this thread's live WS frames route correctly before the
+    // next /api/state poll rebuilds the set (server registry stays the SSOT).
+    if (state.projectChatIds && typeof state.projectChatIds.add === 'function') {
+        state.projectChatIds.add(chatId);
+    }
+    const pair = `${chatId}:${projectId}`;
+    if (gigabuddyNoviceInstance && gigabuddyNovicePair === pair) return; // idempotent
+    // createChatInstance APPENDS into mountEl — remove the placeholder first.
+    slot.replaceChildren();
+    gigabuddyNoviceInstance = createChatInstance({
+        ...ctx,
+        chatId,
+        projectId,
+        idPrefix: 'gigabuddy-novice',
+        mountEl: slot,
+        asPanel: true,
+        title: 'Чат',
+    });
+    gigabuddyNovicePair = pair;
+});
+
 async function refreshProductMode() {
     try {
         const settings = await apiClient.settings();

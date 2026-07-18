@@ -34,6 +34,59 @@ Empty value means ordinary Ouroboros. For the demo, configure the mode before th
 - Static tests pin that the overlay is reversible, ordinary mode remains default, `/api/state` is untouched, and `/panic` remains structurally available.
 - A visible owner/admin return form asks for a four-digit PIN and calls the existing `/api/settings` seam with `_action: "gigabuddy_return"`. The server checks `GIGABUDDY_ADMIN_PIN`, clears product mode only on a correct PIN, and keeps submitted PIN values out of responses/audit payloads.
 
+## 3-column layout and the isolated novice chat (v6.76.0, B1)
+
+In product mode the main chat becomes one cohesive three-column layout (not a
+panel floating over the developer chat):
+
+- **Left — adaptation-track skeleton.** A static container (`[data-gigabuddy-track-slot]`)
+  reserved for the future animated, "diveable" track (B2). It renders a
+  placeholder in B1; no live data fetch.
+- **Center — the novice's clean chat.** This is where the novice types. It is a
+  separate chat thread from the developer's main Ouroboros chat.
+- **Right — the decluttered adaptation panel** (`[data-gigabuddy-track-panel]`),
+  now a grid column instead of an absolutely-positioned floating card.
+
+On narrow screens the grid degrades to a single scrollable column (novice chat
+first).
+
+### Novice-thread partitioning (not memory isolation)
+
+The novice thread is partitioned by **reusing the existing project/chat_id
+thread-routing**, not a new chat store:
+
+- `ouroboros/gigabuddy_state.py::ensure_novice_project(drive_root)` idempotently
+  registers a `gigabuddy-novice` project through `projects_registry.create_project`
+  (the single lifecycle/reservation SSOT). It is a registry bridge, never a
+  reducer mutation, and fails soft to a zero descriptor.
+- `ouroboros/gateway/state.py::api_state` calls it eagerly when product mode is
+  active, BEFORE emitting `project_chat_ids`, so the novice chat_id is a
+  REGISTERED project chat id on the very first `/api/state` poll (the durable
+  ordering guarantee `web/app.js::renderProjectsNav` relies on to rebuild
+  `state.projectChatIds`).
+- `ouroboros/gateway/settings.py::_handle_gigabuddy_action` injects a camelCase
+  `view.noviceChat = {chatId, projectId}` (the reducer/view stay pure).
+- `web/modules/gigabuddy.js::refreshGigaBuddyPanel` is the single `get_state`
+  fetch owner; from that one view it dispatches `ouro:gigabuddy-novice-chat`, and
+  `web/app.js` mounts the isolated center chat via `createChatInstance` (project
+  `chatId`), falling back to an explicit unavailable placeholder if registration
+  failed.
+
+This is **UI/history thread partitioning** — a focused novice room within ONE
+unified Ouroboros awareness (BIBLE P1). It is NOT memory or privacy isolation:
+the single Ouroboros identity/memory remains intact, and `reserved_project_chat_ids`
+stays complete (it is the routing SSOT and is never filtered). No frozen
+`/api/state` field, no `contracts.py` change, and no new frozen route is added.
+
+Because registration is a real project, a `Новичок` row is visible in the
+DEVELOPER sidebar when product mode is off — an honest artifact of a real
+thread. The novice never sees it (product mode hides the Projects nav). This is
+not activity-gated in B1.
+
+Content that fills these columns — the in-chat onboarding questionnaire, the
+knowledge-base "wiki" retrieval, and the adaptation methodology skill — is
+deliberately deferred to later increments (B3 / C).
+
 ## Deliberate boundaries
 
 This is presentation, not public authentication or a security boundary. Emergency slash commands and owner/admin routes still exist. The novice shell hides confusing or dangerous controls from the product surface; it does not delete the underlying capabilities.

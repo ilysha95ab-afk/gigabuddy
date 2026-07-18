@@ -237,7 +237,17 @@ export function createChatInstance({
     page.innerHTML = `
         ${headerHtml}
         ${!asPanel ? '<div class="gigabuddy-product-subtitle" data-gigabuddy-subtitle hidden></div>' : ''}
-        ${!asPanel ? renderGigaBuddyTrackPanel() : ''}
+        ${!asPanel ? `
+        <div class="gigabuddy-product-layout" data-gigabuddy-product-layout>
+            <section class="gigabuddy-track-slot" data-gigabuddy-track-slot>
+                <div class="gigabuddy-track-slot-head">Адаптационный трек</div>
+                <div class="gigabuddy-track-slot-body">Живой трек появится здесь по мере адаптации.</div>
+            </section>
+            <section class="gigabuddy-novice-chat-slot" data-gigabuddy-novice-chat-slot>
+                <div class="gigabuddy-novice-placeholder">Чат новичка загружается…</div>
+            </section>
+            <section class="gigabuddy-panel-slot" data-gigabuddy-panel-slot>${renderGigaBuddyTrackPanel()}</section>
+        </div>` : ''}
         <div id="chat-messages"></div>
         <div id="chat-input-area">
             <div id="chat-attachment-preview" class="chat-attachment-preview"></div>

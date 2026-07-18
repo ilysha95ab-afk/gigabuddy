@@ -25,7 +25,11 @@ from ouroboros.config import (
     save_settings,
 )
 from ouroboros.gateway._helpers import json_error, json_exception, request_drive_root
-from ouroboros.gigabuddy_state import GigaBuddyStateError, apply_gigabuddy_action
+from ouroboros.gigabuddy_state import (
+    GigaBuddyStateError,
+    apply_gigabuddy_action,
+    ensure_novice_project,
+)
 from ouroboros.onboarding_wizard import build_onboarding_html
 from ouroboros.platform_layer import is_container_env
 from ouroboros.server_runtime import (
@@ -470,13 +474,23 @@ def _handle_gigabuddy_action(request: Request, body: Dict[str, Any]) -> JSONResp
         payload = (body or {}).get("payload") or {}
         if not isinstance(payload, dict):
             return json_error("GigaBuddy payload must be an object.", 400)
-        result = apply_gigabuddy_action(request_drive_root(request), op, payload)
+        drive_root = request_drive_root(request)
+        result = apply_gigabuddy_action(drive_root, op, payload)
         _owner_audit(request, "gigabuddy", result.get("audit") or {"op": op, "result": "success"})
+        # Enrich the (view-pure) reducer output with the novice thread descriptor
+        # at the gateway seam (camelCase to match build_gigabuddy_view). This is
+        # response-only transport metadata — never persisted into GigaBuddy state.
+        view = dict(result.get("view") or {})
+        novice = ensure_novice_project(drive_root)
+        view["noviceChat"] = {
+            "chatId": novice["chat_id"],
+            "projectId": novice["project_id"],
+        }
         return JSONResponse({
             "ok": True,
             "status": "ok",
             "state": result.get("state") or {},
-            "view": result.get("view") or {},
+            "view": view,
         })
     except GigaBuddyStateError as e:
         return json_error(str(e), 400)

@@ -233,6 +233,13 @@ export async function refreshGigaBuddyPanel(root = document) {
     const view = result.view || GIGABUDDY_DEMO_STATE;
     panel.outerHTML = renderGigaBuddyTrackPanel(view);
     applyGigaBuddyInterface(normalizeView(view).interface, root);
+    // This is the SINGLE get_state fetch owner: from the same view, publish the
+    // novice-thread descriptor so app.js can mount the isolated center chat.
+    // Always dispatch (even on a missing/zero descriptor) so the center slot can
+    // deterministically fall back to the explicit unavailable placeholder.
+    window.dispatchEvent(new CustomEvent('ouro:gigabuddy-novice-chat', {
+        detail: (result.view && result.view.noviceChat) || {},
+    }));
     return result.view || null;
 }
 

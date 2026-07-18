@@ -5773,15 +5773,11 @@ textarea.chat-input {
     pointer-events: none;
 }
 
+/* B1 (v6.76.0): the right panel is now a COLUMN in the 3-column product-mode
+   grid, so it carries ONLY visual card styling here — no positioning. Layout
+   (placement/size/scroll) lives on the parent .gigabuddy-panel-slot below. */
 .gigabuddy-track-panel {
     display: none;
-    position: absolute;
-    top: 118px;
-    right: 18px;
-    bottom: calc(var(--chat-input-reserve, 108px) + 16px);
-    width: min(360px, 32vw);
-    min-width: 300px;
-    z-index: 4;
     overflow-y: auto;
     padding: 14px;
     border: 1px solid rgba(255, 255, 255, 0.11);
@@ -5795,12 +5791,101 @@ textarea.chat-input {
     box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-body.product-gigabuddy #page-chat .gigabuddy-track-panel {
-    display: block;
+/* --- B1: 3-column product-mode layout (track / novice chat / panel) --------
+   The product layout is a plain flow wrapper by default (its slots stay hidden
+   because the panel keeps display:none and the placeholders have no chrome), and
+   becomes a real grid only under product mode. The developer chat is untouched. */
+.gigabuddy-product-layout {
+    display: none;
 }
 
-body.product-gigabuddy #page-chat #chat-messages {
-    padding-right: calc(min(360px, 32vw) + 44px);
+body.product-gigabuddy #page-chat .gigabuddy-product-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) min(360px, 32vw);
+    gap: 16px;
+    position: absolute;
+    top: 108px;
+    left: 18px;
+    right: 18px;
+    bottom: calc(var(--chat-input-reserve, 108px) - 24px);
+    z-index: 4;
+    min-height: 0;
+}
+
+/* The developer transcript/composer are hidden in product mode; the novice chat
+   lives in the center slot. Narrow direct-child scope so the novice asPanel
+   instance's own .chat-messages twin is never hit. */
+body.product-gigabuddy #page-chat > #chat-messages,
+body.product-gigabuddy #page-chat > #chat-input-area {
+    display: none;
+}
+
+.gigabuddy-track-slot {
+    min-height: 0;
+    overflow: auto;
+    padding: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(38, 28, 50, 0.7), rgba(18, 14, 24, 0.62));
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    color: rgba(255, 235, 245, 0.82);
+}
+
+.gigabuddy-track-slot-head {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin-bottom: 8px;
+    color: rgba(255, 235, 245, 0.92);
+}
+
+.gigabuddy-track-slot-body {
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(255, 235, 245, 0.6);
+}
+
+.gigabuddy-novice-chat-slot {
+    position: relative;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: 20px;
+}
+
+.gigabuddy-novice-chat-slot > * {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+}
+
+.gigabuddy-novice-placeholder {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.5;
+    color: rgba(255, 235, 245, 0.6);
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+}
+
+.gigabuddy-panel-slot {
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+}
+
+/* Scoped visibility: the base .gigabuddy-track-panel keeps display:none; a
+   parent slot being visible does NOT override the child, so re-show it here. */
+body.product-gigabuddy #page-chat .gigabuddy-panel-slot > .gigabuddy-track-panel {
+    display: block;
+    flex: 1;
+    min-height: 0;
 }
 
 body.product-gigabuddy #primary-sidebar .nav-utilities,
@@ -6037,19 +6122,21 @@ body.product-gigabuddy .gigabuddy-adapt-stage[data-status="active"] .gigabuddy-a
 }
 
 @media (max-width: 1180px) {
-    body.product-gigabuddy #page-chat #chat-messages {
-        padding-right: 20px;
-        padding-bottom: calc(var(--chat-input-reserve, 108px) + 280px);
+    /* B1: the 3-column grid stacks into one scrollable column on narrow screens
+       (novice chat first, then track skeleton, then panel). */
+    body.product-gigabuddy #page-chat .gigabuddy-product-layout {
+        grid-template-columns: minmax(0, 1fr);
+        grid-auto-rows: minmax(0, auto);
+        overflow-y: auto;
     }
 
-    .gigabuddy-track-panel {
-        top: auto;
-        left: 16px;
-        right: 16px;
-        bottom: calc(var(--chat-input-reserve, 108px) + 10px);
-        width: auto;
-        min-width: 0;
-        max-height: 260px;
+    body.product-gigabuddy #page-chat .gigabuddy-novice-chat-slot {
+        order: -1;
+        min-height: 320px;
+    }
+
+    body.product-gigabuddy #page-chat .gigabuddy-track-slot {
+        max-height: 220px;
     }
 }
 

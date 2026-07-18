@@ -2,12 +2,15 @@ import json
 
 import pytest
 
+from ouroboros import projects_registry
 from ouroboros.gigabuddy_state import (
     GigaBuddyStateError,
+    NOVICE_PROJECT_ID,
     STATE_RELATIVE_PATH,
     apply_gigabuddy_action,
     build_gigabuddy_view,
     default_gigabuddy_state,
+    ensure_novice_project,
     load_gigabuddy_state,
 )
 
@@ -146,3 +149,39 @@ def test_gigabuddy_malformed_state_normalizes_to_defaults(tmp_path):
     state = load_gigabuddy_state(tmp_path)
     assert state["schema_version"] == 1
     assert state["active_employee_id"] == "alice-demo"
+
+
+# --- B1: novice-thread partitioning via a registered project (v6.76.0) --------
+
+def test_ensure_novice_project_registers_and_is_reserved(tmp_path):
+    desc = ensure_novice_project(tmp_path)
+    assert desc["project_id"] == NOVICE_PROJECT_ID
+    assert desc["chat_id"] > 1
+    # The chat_id must be a REGISTERED project chat id WITHOUT any prior get_state:
+    # that registration is exactly what makes the novice thread partition in the
+    # UI/history layer (reserved_project_chat_ids is the routing SSOT).
+    assert desc["chat_id"] in projects_registry.reserved_project_chat_ids(tmp_path)
+
+
+def test_ensure_novice_project_is_idempotent(tmp_path):
+    first = ensure_novice_project(tmp_path)
+    second = ensure_novice_project(tmp_path)
+    assert first == second
+    entries = [p for p in projects_registry.list_reserved_projects(tmp_path)
+               if p.get("id") == NOVICE_PROJECT_ID]
+    assert len(entries) == 1
+
+
+def test_ensure_novice_project_fail_soft_on_non_active_reservation(tmp_path):
+    # A tombstoned/deleting reservation makes create_project raise; the helper
+    # must fail soft to a zero descriptor rather than surface a stale live id.
+    projects_registry.create_project(tmp_path, NOVICE_PROJECT_ID, name="Новичок")
+    projects_registry.begin_project_deletion(tmp_path, NOVICE_PROJECT_ID)
+    desc = ensure_novice_project(tmp_path)
+    assert desc == {"chat_id": 0, "project_id": ""}
+
+
+def test_ensure_novice_project_is_not_a_reducer_mutation(tmp_path):
+    # Calling the registry bridge must not create GigaBuddy reducer state.
+    ensure_novice_project(tmp_path)
+    assert not (tmp_path / STATE_RELATIVE_PATH).exists()

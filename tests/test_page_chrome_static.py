@@ -239,6 +239,79 @@ def test_gigabuddy_interface_personalization_surface():
     assert "gigabuddy" not in contracts.lower()
 
 
+def test_gigabuddy_three_column_layout_and_novice_thread(tmp_path=None):
+    """B1 (v6.76.0): cohesive 3-column product-mode layout (track / novice chat /
+    panel) with a backend-partitioned novice thread reusing project chat_id
+    routing. No project-room overlay; no frozen contract churn."""
+    chat = _read("web/modules/chat.js")
+    gigabuddy = _read("web/modules/gigabuddy.js")
+    app = _read("web/app.js")
+    css = _read("web/style.css")
+    state = _read("ouroboros/gateway/state.py")
+    settings = _read("ouroboros/gateway/settings.py")
+    gb_state = _read("ouroboros/gigabuddy_state.py")
+    contracts = _read("ouroboros/gateway/contracts.py")
+
+    # --- chat.js: the 3 slots exist, and only in the main (!asPanel) branch so a
+    # novice asPanel instance never recursively renders the product layout.
+    assert "gigabuddy-product-layout" in chat
+    assert "data-gigabuddy-track-slot" in chat
+    assert "data-gigabuddy-novice-chat-slot" in chat
+    assert "data-gigabuddy-panel-slot" in chat
+    assert "gigabuddy-novice-placeholder" in chat
+    layout_idx = chat.index("gigabuddy-product-layout")
+    # The layout markup sits inside a `${!asPanel ? ... : ''}` guard.
+    assert "!asPanel ?" in chat[max(0, layout_idx - 400):layout_idx]
+
+    # --- gigabuddy.js: single get_state owner publishes the novice descriptor.
+    assert "ouro:gigabuddy-novice-chat" in gigabuddy
+    assert "noviceChat" in gigabuddy
+
+    # --- app.js: mounts the isolated center chat, with same-tick routing guard,
+    # invalid-descriptor placeholder fallback, event-supplied projectId, and a
+    # placeholder-clearing replaceChildren before mounting.
+    assert "ouro:gigabuddy-novice-chat" in app
+    assert "data-gigabuddy-novice-chat-slot" in app
+    assert "state.projectChatIds.add" in app
+    assert "replaceChildren()" in app
+    assert "idPrefix: 'gigabuddy-novice'" in app
+    assert "createChatInstance(" in app
+    # invalid descriptor keeps an explicit placeholder rather than mounting.
+    assert "gigabuddy-novice-placeholder" in app
+
+    # --- CSS: grid layout on the wrapper, scoped panel visibility (base panel
+    # keeps display:none), narrow direct-child hide of the developer transcript,
+    # a center-slot flex contract, and NO positioning left on the panel itself.
+    assert "body.product-gigabuddy #page-chat .gigabuddy-product-layout {" in css
+    assert "display: grid;" in css
+    assert "body.product-gigabuddy #page-chat .gigabuddy-panel-slot > .gigabuddy-track-panel {" in css
+    assert "body.product-gigabuddy #page-chat > #chat-messages" in css
+    assert ".gigabuddy-novice-chat-slot {" in css
+    # The panel's own rule must no longer carry positioning props (they moved to
+    # the slot); guard the exact base-rule block.
+    panel_rule_start = css.index(".gigabuddy-track-panel {")
+    panel_rule_end = css.index("}", panel_rule_start)
+    panel_rule = css[panel_rule_start:panel_rule_end]
+    for banned in ["position: absolute", "top:", "right:", "bottom:", "width:", "min-width:", "max-height:"]:
+        assert banned not in panel_rule
+    # But it keeps its visual card styling.
+    assert "border-radius:" in panel_rule and "backdrop-filter:" in panel_rule
+
+    # --- backend: novice-project registry bridge + eager /api/state registration
+    # + gateway view injection; the reducer/view stay pure and no contract churn.
+    assert "def ensure_novice_project" in gb_state
+    assert 'NOVICE_PROJECT_ID = "gigabuddy-novice"' in gb_state
+    assert "ensure_novice_project" in state
+    assert 'OUROBOROS_PRODUCT_MODE", "").strip().lower() == "gigabuddy"' in state
+    assert "ensure_novice_project" in settings
+    assert '"noviceChat"' in settings and '"chatId"' in settings
+    assert "gigabuddy" not in contracts.lower()
+
+    # Panic + PIN-return preserved.
+    assert 'data-chat-command="panic"' in chat
+    assert "data-gigabuddy-return-form" in gigabuddy
+
+
 def test_server_navigation_and_chat_static_contracts():
     server_source = _read("server.py")
     state_source = _read("ouroboros/gateway/state.py")
