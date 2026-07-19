@@ -412,6 +412,247 @@ def test_b3_profile_file_access_is_confined(tmp_path):
     assert gigabuddy_profile.load_employee_profile("../../etc") is None
 
 
+# --- Flexible profile extraction (v6.86.0) ---------------------------------
+
+
+def test_flexible_profile_frontmatter_name_no_llm(tmp_path, monkeypatch):
+    """A frontmatter «Имя: Алиса, роль HR» parses deterministically — the LLM is
+    never even called (deterministic name found first)."""
+    from ouroboros import gigabuddy_profile
+
+    calls = {"n": 0}
+    def _boom(_text):
+        calls["n"] += 1
+        raise AssertionError("LLM must not be called when frontmatter has a name")
+    monkeypatch.setattr(gigabuddy_profile, "_llm_extract_profile", _boom)
+
+    frag = gigabuddy_profile.extract_profile_flexible(
+        "---\nИмя: Алиса\nроль: HR\n---\n", is_json=False)
+    assert frag["name"] == "Алиса"
+    assert frag["role"] == "HR"
+    assert calls["n"] == 0
+
+
+def test_flexible_profile_freeform_uses_llm(tmp_path, monkeypatch):
+    """Free-form «имя - Алиса» (dash separator, no frontmatter) that the
+    deterministic parser cannot key routes through the LLM extractor. Simulate a
+    successful light-lane extraction (env has no key, so we monkeypatch the send)."""
+    from ouroboros import gigabuddy_profile
+
+    monkeypatch.setattr(
+        gigabuddy_profile, "_llm_extract_profile",
+        lambda _text: {"name": "Алиса", "role": "HR", "department": "Люди и культура"})
+
+    frag = gigabuddy_profile.extract_profile_flexible(
+        "имя - Алиса, работает в HR, отдел Люди и культура", is_json=False)
+    # _normalize_raw_profile lifts name/role to the top and keeps the full
+    # profile block nested (department lives there).
+    assert frag["name"] == "Алиса"
+    assert frag["role"] == "HR"
+    assert frag["profile"]["department"] == "Люди и культура"
+
+
+class _FakeLLMClient:
+    """Fake LLMClient injected at the REAL client seam (`ouroboros.llm.LLMClient`)
+    so `_llm_extract_profile` runs its actual body — usage-scope rebind,
+    `model_call_slot`, `usage_scope`, and JSON-strictness parsing — instead of
+    being stubbed wholesale. Records the exact chat kwargs for assertions."""
+
+    last_kwargs = None
+
+    def __init__(self, *_a, **_kw):
+        pass
+
+    def chat(self, **kwargs):
+        _FakeLLMClient.last_kwargs = kwargs
+        return {"role": "assistant", "content": _FakeLLMClient._content}, {}
+
+
+def _inject_fake_llm(monkeypatch, content):
+    """Patch the LLMClient CLASS the extractor imports, and capture the usage
+    scope active during the send so we can assert the accounting wiring."""
+    import ouroboros.llm as _llm
+    import ouroboros.usage_accounting as _ua
+
+    captured = {"scope": None}
+    _FakeLLMClient._content = content
+
+    real_usage_scope = _ua.usage_scope
+
+    def _spy_usage_scope(scope):
+        captured["scope"] = scope
+        return real_usage_scope(scope)
+
+    monkeypatch.setattr(_llm, "LLMClient", _FakeLLMClient)
+    monkeypatch.setattr(_ua, "usage_scope", _spy_usage_scope)
+    return captured
+
+
+def test_llm_extract_profile_real_seam_success(tmp_path, monkeypatch):
+    """Inject a fake LLMClient at the real seam: the extractor's genuine body
+    parses strict JSON AND binds the send to a `gigabuddy_profile` usage scope
+    (the monetary-accounting path, same as the knowledge module)."""
+    from ouroboros import gigabuddy_profile
+
+    captured = _inject_fake_llm(
+        monkeypatch,
+        json.dumps({"name": "Алиса", "role": "HR", "department": "Люди и культура"}))
+
+    out = gigabuddy_profile._llm_extract_profile("имя - Алиса, HR, Люди и культура")
+    assert out is not None
+    assert out["name"] == "Алиса"
+    assert out["role"] == "HR"
+    # Accounting wiring actually exercised: the send ran under a rebound scope
+    # tagged for gigabuddy_profile (the monetary authority), and json_object
+    # response_format was requested through the real chat kwargs.
+    assert captured["scope"] is not None
+    assert captured["scope"].category == "gigabuddy_profile"
+    assert captured["scope"].source == "gigabuddy_profile"
+    assert _FakeLLMClient.last_kwargs["response_format"] == {"type": "json_object"}
+
+
+def test_llm_extract_profile_real_seam_code_fence(tmp_path, monkeypatch):
+    """A ```json fenced reply is de-fenced and parsed by the real extractor body."""
+    from ouroboros import gigabuddy_profile
+
+    _inject_fake_llm(monkeypatch, "```json\n{\"name\": \"Нова\"}\n```")
+    out = gigabuddy_profile._llm_extract_profile("свободный текст про Нову")
+    assert out is not None and out["name"] == "Нова"
+
+
+def test_llm_extract_profile_real_seam_empty_returns_none(tmp_path, monkeypatch):
+    """Empty model content → None (clean fall-through to deterministic parser)."""
+    from ouroboros import gigabuddy_profile
+
+    _inject_fake_llm(monkeypatch, "")
+    assert gigabuddy_profile._llm_extract_profile("любой текст") is None
+
+
+def test_llm_extract_profile_real_seam_bad_json_returns_none(tmp_path, monkeypatch):
+    """Non-JSON garbage with no {...} → None; never raises, never fabricates."""
+    from ouroboros import gigabuddy_profile
+
+    _inject_fake_llm(monkeypatch, "извините, не понял запрос")
+    assert gigabuddy_profile._llm_extract_profile("любой текст") is None
+
+
+def test_llm_extract_profile_freeform_dash_name_alisa(tmp_path, monkeypatch):
+    """Distinct, independently-reviewable receipt for the «имя - Алиса» free-form
+    case: driving the REAL extractor seam yields name == 'Алиса'."""
+    from ouroboros import gigabuddy_profile
+
+    _inject_fake_llm(monkeypatch, json.dumps({"name": "Алиса"}))
+    out = gigabuddy_profile._llm_extract_profile("имя - Алиса")
+    assert out is not None and out["name"] == "Алиса"
+
+
+def test_flexible_profile_llm_failure_degrades_cleanly(tmp_path, monkeypatch):
+    """LLM unavailable/None → fall back to the deterministic result (here empty),
+    never raises, never fabricates."""
+    from ouroboros import gigabuddy_profile
+
+    monkeypatch.setattr(gigabuddy_profile, "_llm_extract_profile", lambda _text: None)
+    # Unstructured prose the deterministic parser can't turn into a name.
+    frag = gigabuddy_profile.extract_profile_flexible(
+        "какой-то свободный текст без явных полей", is_json=False)
+    assert "name" not in frag  # no fabrication
+
+
+def test_flexible_profile_empty_is_neutral(tmp_path):
+    from ouroboros import gigabuddy_profile
+
+    assert gigabuddy_profile.extract_profile_flexible("", is_json=False) == {}
+    assert gigabuddy_profile.extract_profile_flexible("   ", is_json=False) == {}
+
+
+def test_flexible_profile_json_never_calls_llm(tmp_path, monkeypatch):
+    """JSON is already structured → deterministic parse, LLM never invoked."""
+    from ouroboros import gigabuddy_profile
+
+    monkeypatch.setattr(
+        gigabuddy_profile, "_llm_extract_profile",
+        lambda _t: (_ for _ in ()).throw(AssertionError("LLM must not run for JSON")))
+    frag = gigabuddy_profile.extract_profile_flexible(
+        json.dumps({"name": "Нова", "role": "Аналитик"}), is_json=True)
+    assert frag["name"] == "Нова"
+
+
+def test_flexible_profile_load_freeform_file_via_llm(tmp_path, monkeypatch):
+    """End-to-end: a free-form .txt profile with no frontmatter loads a name
+    through the flexible extractor (LLM path monkeypatched to succeed)."""
+    from ouroboros import gigabuddy_profile
+
+    monkeypatch.setattr(
+        gigabuddy_profile, "_llm_extract_profile",
+        lambda _t: {"name": "Алиса", "role": "HR-специалист"})
+    emp_dir = gigabuddy_profile.employee_dir("freeform-emp") / "profile"
+    emp_dir.mkdir(parents=True, exist_ok=True)
+    (emp_dir / "about.txt").write_text(
+        "Знакомьтесь — имя - Алиса, наш новый HR-специалист.", encoding="utf-8")
+    result = apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "freeform-emp"})
+    assert result["audit"]["loaded"] is True
+    assert result["view"]["profile"]["name"] == "Алиса"
+
+
+# --- Reset employee onboarding (v6.86.0) -----------------------------------
+
+
+def test_reset_onboarding_clears_track_keeps_profile(tmp_path):
+    """After a built track, reset_onboarding empties track/stage/progress but
+    preserves the loaded profile identity + interface."""
+    # Load a profile and build a track (as the questionnaire would).
+    apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "alice-demo"})
+    apply_gigabuddy_action(tmp_path, "set_track", {"stages": [
+        {"label": "Первые дни", "title": "Знакомство", "steps": ["1:1"]},
+        {"label": "Первый месяц", "title": "Задача"},
+    ]})
+    built = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]
+    assert len(built["track"]) == 2
+    assert built["profile"]["name"] == "Алиса"
+
+    reset = apply_gigabuddy_action(tmp_path, "reset_onboarding", {})
+    view = reset["view"]
+    # Track/stage/progress cleared to neutral.
+    assert view["track"] == []
+    assert view["progressPct"] == 0
+    assert view["stage"]["id"] == "advisor"
+    # Profile identity + interface preserved (mentor re-runs the questionnaire).
+    assert view["profile"]["name"] == "Алиса"
+    assert view["interface"]["mascot"] == "🐾"
+
+    # Durable: a fresh load from disk still shows the cleared track.
+    reloaded = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]
+    assert reloaded["track"] == []
+    assert reloaded["profile"]["name"] == "Алиса"
+
+
+def test_reset_onboarding_then_new_track(tmp_path):
+    """reset → the mentor supplies new data → a new track builds cleanly."""
+    apply_gigabuddy_action(tmp_path, "set_track", {"stages": [
+        {"label": "Старый", "title": "Старый трек"}]})
+    apply_gigabuddy_action(tmp_path, "reset_onboarding", {})
+    apply_gigabuddy_action(tmp_path, "set_track", {"stages": [
+        {"label": "Новый", "title": "Новый трек"},
+        {"label": "Ещё", "title": "Второй этап"}]})
+    view = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]
+    assert [s["title"] for s in view["track"]] == ["Новый трек", "Второй этап"]
+
+
+def test_reset_onboarding_rejects_unknown_payload(tmp_path):
+    with pytest.raises(GigaBuddyStateError):
+        apply_gigabuddy_action(tmp_path, "reset_onboarding", {"employee_id": "x"})
+
+
+def test_reset_onboarding_view_hides_no_diagnostics(tmp_path):
+    """The reset op's view stays novice-safe (no internal_signals/proposals leak)."""
+    apply_gigabuddy_action(tmp_path, "set_track", {"stages": [{"label": "X", "title": "Y"}]})
+    view = apply_gigabuddy_action(tmp_path, "reset_onboarding", {})["view"]
+    dumped = json.dumps(view, ensure_ascii=False)
+    assert "internal_signals" not in dumped
+    assert "evolution_proposals" not in dumped
+    assert "mentor_notes" not in dumped
+
+
 # --- Reversible self-evolution (v6.83.0) -----------------------------------
 
 

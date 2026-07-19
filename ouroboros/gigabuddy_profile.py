@@ -28,7 +28,11 @@ from typing import Any, Dict, List, Optional
 log = logging.getLogger(__name__)
 
 _MAX_PROFILE_BYTES = 256 * 1024
-_PROFILE_EXTS = (".json", ".md", ".markdown", ".txt")
+_PROFILE_EXTS = (".json", ".md", ".markdown", ".txt", ".docx")
+_DOCX_EXTS = (".docx",)
+# Max characters of free-form profile text fed to the LLM extractor (a profile
+# is short; this is a generous cap that keeps the light-lane call cheap).
+_LLM_PROFILE_MAX_CHARS = 8000
 # A conservative slug identical in spirit to gigabuddy_state._slug so paths stay
 # confined and predictable. Kept local to avoid a circular import.
 _SLUG_KEEP = set("abcdefghijklmnopqrstuvwxyz0123456789_-")
@@ -70,15 +74,41 @@ def _is_confined(path: pathlib.Path, root: pathlib.Path) -> bool:
 
 
 def _read_text_capped(path: pathlib.Path) -> Optional[str]:
+    """Read a profile file to text (fail-soft, size-capped).
+
+    ``.json``/``.md``/``.markdown``/``.txt`` are read directly. ``.docx`` is
+    extracted via the OPTIONAL ``docx2txt`` dependency — absent, ``.docx`` is
+    skipped honestly (returns ``None``) rather than pretending to support it."""
     try:
         if not path.is_file():
             return None
         if path.stat().st_size > _MAX_PROFILE_BYTES:
             log.warning("GigaBuddy profile file too large, skipping: %s", path.name)
             return None
+        if path.suffix.lower() in _DOCX_EXTS:
+            try:
+                import docx2txt  # optional; absent → .docx unsupported (honest skip)
+            except Exception:
+                log.info("GigaBuddy: docx2txt not installed; profile .docx skipped: %s", path.name)
+                return None
+            try:
+                text = docx2txt.process(str(path))
+            except Exception:
+                log.debug("GigaBuddy profile .docx extraction failed: %s", path.name, exc_info=True)
+                return None
+            return text if isinstance(text, str) else None
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
+
+
+def docx_supported() -> bool:
+    """Whether native ``.docx`` profile extraction is available in this runtime."""
+    try:
+        import docx2txt  # noqa: F401
+        return True
+    except Exception:
+        return False
 
 
 def _coerce_interests(value: Any) -> List[str]:
@@ -196,6 +226,107 @@ def _normalize_raw_profile(raw: Dict[str, Any]) -> Dict[str, Any]:
     return fragment
 
 
+_PROFILE_LLM_PROMPT = (
+    "Ты извлекаешь структурированный профиль сотрудника из произвольного текста, "
+    "написанного наставником в любой форме (свободный текст, «Имя: Алиса», "
+    "«имя - Алиса», абзацы). Верни СТРОГО JSON-объект с полями: name, role, "
+    "department, experience, interests (массив строк). Бери ТОЛЬКО то, что реально "
+    "есть в тексте — не выдумывай. Отсутствующее поле опусти или оставь пустым. "
+    "Никакого текста кроме JSON.\n\nТЕКСТ:\n__GB_PROFILE_TEXT__"
+)
+
+
+def _llm_extract_profile(text: str) -> Optional[Dict[str, Any]]:
+    """Ask the LIGHT LLM to pull profile fields from FREE-FORM text.
+
+    Returns a loosely-keyed dict (name/role/department/experience/interests) or
+    ``None`` on ANY failure (no creds / provider error / bad JSON) so the caller
+    falls back to the deterministic frontmatter/JSON parser. Never raises. The
+    physical send is bound to a ``gigabuddy_profile`` usage scope (the monetary
+    authority). Extraction is grounded in the file text only — no fabrication."""
+    body = (text or "").strip()
+    if not body:
+        return None
+    prompt_text = body if len(body) <= _LLM_PROFILE_MAX_CHARS else (
+        body[:_LLM_PROFILE_MAX_CHARS] + " …[профиль обрезан для извлечения]"
+    )
+    try:
+        from dataclasses import replace as _replace
+
+        from ouroboros import model_concurrency
+        from ouroboros.config import get_light_model
+        from ouroboros.llm import LLMClient
+        from ouroboros.provider_models import resolve_credentialed_model
+        from ouroboros.usage_accounting import (
+            UsageScope,
+            current_usage_scope,
+            usage_scope,
+        )
+
+        model = resolve_credentialed_model(get_light_model())
+        use_local = str(os.environ.get("USE_LOCAL_LIGHT", "") or "").lower() in ("true", "1")
+        client = LLMClient()
+        scope = current_usage_scope()
+        if scope is not None:
+            scope = _replace(scope, category="gigabuddy_profile", source="gigabuddy_profile")
+        else:
+            scope = UsageScope(
+                drive_root=None,
+                task_id="gigabuddy_profile",
+                root_task_id="gigabuddy_profile",
+                parent_task_id="",
+                category="gigabuddy_profile",
+                source="gigabuddy_profile",
+            )
+        chat_kwargs = dict(
+            messages=[{
+                "role": "user",
+                "content": _PROFILE_LLM_PROMPT.replace("__GB_PROFILE_TEXT__", prompt_text),
+            }],
+            model=model,
+            tools=None,
+            reasoning_effort="low",
+            max_tokens=2048,
+            use_local=use_local,
+            response_format={"type": "json_object"},
+        )
+        with model_concurrency.model_call_slot(model, use_local):
+            with usage_scope(scope):
+                msg, _usage = client.chat(**chat_kwargs)
+        content = str((msg or {}).get("content") or "").strip()
+        if not content:
+            return None
+        raw = content
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-zA-Z0-9]*\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw).strip()
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            m = re.search(r"\{.*\}", raw, re.DOTALL)
+            if not m:
+                return None
+            try:
+                data = json.loads(m.group(0))
+            except (ValueError, TypeError):
+                return None
+        if not isinstance(data, dict):
+            return None
+        # Keep only recognized, non-empty scalar/list fields (defence in depth).
+        cleaned: Dict[str, Any] = {}
+        for key in ("name", "role", "department", "experience"):
+            val = data.get(key)
+            if isinstance(val, (str, int, float)) and str(val).strip():
+                cleaned[key] = str(val).strip()
+        interests = data.get("interests")
+        if interests:
+            cleaned["interests"] = interests
+        return cleaned or None
+    except Exception:
+        log.debug("GigaBuddy LLM profile extraction failed; using deterministic fallback", exc_info=True)
+        return None
+
+
 def parse_profile_text(text: str, *, is_json: bool) -> Dict[str, Any]:
     """Parse one profile document into a reducer-mergeable fragment.
 
@@ -215,6 +346,37 @@ def parse_profile_text(text: str, *, is_json: bool) -> Dict[str, Any]:
     if not isinstance(raw, dict) or not raw:
         return {}
     return _normalize_raw_profile(raw)
+
+
+def extract_profile_flexible(text: str, *, is_json: bool) -> Dict[str, Any]:
+    """Extract a profile fragment from ANY-FORM text (LLM-first, deterministic
+    fallback).
+
+    For non-JSON text (free-form prose, «Имя: Алиса», «имя - Алиса»), try the LLM
+    extractor first; if it yields a name, use it. Otherwise fall back to the
+    deterministic frontmatter parser. JSON documents are always parsed
+    deterministically (they are already structured). Fully fail-soft: any failure
+    degrades to the deterministic result, then to an empty fragment (neutral
+    start). Never fabricates fields the source did not contain."""
+    if not text or not text.strip():
+        return {}
+    deterministic = parse_profile_text(text, is_json=is_json)
+    # JSON is already structured — trust the deterministic parse.
+    if is_json:
+        return deterministic
+    # Deterministic frontmatter already found a name → good enough, skip the LLM.
+    if deterministic.get("name"):
+        return deterministic
+    # Free-form text without a frontmatter name → let the LLM pull the fields.
+    llm_raw = _llm_extract_profile(text)
+    if llm_raw:
+        llm_fragment = _normalize_raw_profile(llm_raw)
+        if llm_fragment.get("name"):
+            return llm_fragment
+        # LLM found partial fields but no name: prefer whichever fragment is richer.
+        if llm_fragment and not deterministic:
+            return llm_fragment
+    return deterministic
 
 
 def load_employee_profile(employee_id: str) -> Optional[Dict[str, Any]]:
@@ -247,7 +409,9 @@ def load_employee_profile(employee_id: str) -> Optional[Dict[str, Any]]:
         text = _read_text_capped(path)
         if text is None:
             continue
-        fragment = parse_profile_text(text, is_json=path.suffix.lower() == ".json")
+        # Flexible extraction: JSON/frontmatter parse deterministically; free-form
+        # text (no frontmatter name) falls to the LLM extractor, then fails soft.
+        fragment = extract_profile_flexible(text, is_json=path.suffix.lower() == ".json")
         if not fragment:
             continue
         if fragment.get("name"):

@@ -127,6 +127,7 @@ ALLOWED_OPS = frozenset({
     "rollback",
     "demo_accelerate",
     "load_profile",
+    "reset_onboarding",
     "set_track",
     "record_progress",
     "propose_evolution",
@@ -478,40 +479,14 @@ def default_gigabuddy_state() -> Dict[str, Any]:
 # default. `load_profile` with one of these ids does a full state replacement for
 # the active employee, mirroring the file-parse path (B3). A mentor's real profile
 # file under employees/<id>/profile/ takes precedence over these built-in demos.
-_DEMO_PROFILES: Dict[str, Dict[str, Any]] = {
-    "alice-demo": {
-        "name": "Алиса",
-        "role": "HR · Люди и культура",
-        "profile": {
-            "name": "Алиса",
-            "role": "HR · Люди и культура",
-            "department": "Люди и культура",
-            "experience": "Первая роль в найме; сильна в коммуникации, осваивает внутренние регламенты.",
-            "interests": ["котики", "иллюстрация", "командные ритуалы"],
-        },
-        "interface": {"theme": "soft-cat", "accent_color": "#e8799f", "mascot": "🐾", "tone": "playful"},
-    },
-    "leonid-demo": {
-        "name": "Леонид",
-        "role": "Разработчик · внутренний переход",
-        "profile": {
-            "name": "Леонид",
-            "role": "Разработчик · внутренний переход",
-            "department": "Инженерия платформы",
-            "experience": "Опытный разработчик; переходит между командами, нужен быстрый деловой тон.",
-            "interests": ["распределённые системы", "надёжность", "code review"],
-        },
-        "interface": {"theme": "strict-terminal", "accent_color": "#5ad1c9", "mascot": "⌘", "tone": "formal"},
-    },
-}
-
-
-def list_demo_profiles() -> list[Dict[str, str]]:
-    """Loadable built-in demo profiles (id + display name) for the owner switcher."""
-    return [
-        {"id": pid, "name": str(spec.get("name") or pid)}
-        for pid, spec in _DEMO_PROFILES.items()
-    ]
+# Built-in demo profiles (Alice/Leonid) live in the pure-data module
+# gigabuddy_demo_profiles to keep this reducer under the module-size gate (P7).
+# Re-exported here so gigabuddy_state.list_demo_profiles / _DEMO_PROFILES stay the
+# stable public/internal API the callers and tests use.
+from ouroboros.gigabuddy_demo_profiles import (  # noqa: E402
+    DEMO_PROFILES as _DEMO_PROFILES,
+    list_demo_profiles,
+)
 
 
 def _apply_profile_fragment(emp: Dict[str, Any], fragment: Dict[str, Any]) -> None:
@@ -903,6 +878,29 @@ def _op_load_profile(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str
     return {"state": state, "audit": {"op": "load_profile", "employee_id": requested, "loaded": True, "source": source, "result": "success"}}
 
 
+def _op_reset_onboarding(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Reset the active employee's ONBOARDING back to a neutral, empty state while
+    PRESERVING the parsed profile (name/role/department/interface).
+
+    Mentor flow: the personalised adaptation track / questionnaire outcome didn't
+    fit → reset here → (optionally drop new files into ``employees/<id>/`` and
+    ``load_profile`` again) → re-run the chat questionnaire, which rebuilds the
+    track from scratch. This clears ``track``/``stage``/``progress_pct`` plus the
+    onboarding-session ``tasks`` and ``mentor_notes`` (the questionnaire outcome),
+    but never touches the profile identity or interface. It is deliberately NOT an
+    evolution revert (that's ``revert_evolution``, a different concern)."""
+    emp = _active_employee(state)
+    emp["track"] = []
+    emp["stage"] = "advisor"
+    emp["progress_pct"] = 0
+    emp["tasks"] = []
+    emp["mentor_notes"] = []
+    emp["next_step"] = ""
+    emp["readiness"] = ""
+    _append_event(state, _event("reset_onboarding", emp["id"], "Онбординг сброшен — профиль сохранён", result="reset"))
+    return {"state": state, "audit": {"op": "reset_onboarding", "employee_id": emp["id"], "result": "reset"}}
+
+
 def _op_set_track(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
     """Set the active employee's adaptation track (B3 chat-questionnaire outcome).
 
@@ -1168,6 +1166,7 @@ _OPS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]] = {
     "rollback": _op_rollback,
     "demo_accelerate": _op_demo_accelerate,
     "load_profile": _op_load_profile,
+    "reset_onboarding": _op_reset_onboarding,
     "set_track": _op_set_track,
     "record_progress": _op_record_progress,
     "propose_evolution": _op_propose_evolution,
@@ -1184,6 +1183,7 @@ _ALLOWED_PAYLOAD_KEYS = {
     "rollback": frozenset({"version_id"}),
     "demo_accelerate": frozenset({"stage", "reason"}),
     "load_profile": frozenset({"employee_id"}),
+    "reset_onboarding": frozenset(),
     "set_track": frozenset({"stages"}),
     "record_progress": frozenset({"stage_id", "status"}),
     # Evolution ops: propose carries the depth + bounded soft-layer payload
