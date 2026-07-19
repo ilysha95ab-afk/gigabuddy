@@ -9,7 +9,7 @@ set -euo pipefail
 
 # Repo root = two levels above this script (packaging/desktop/ -> repo).
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ICON="$REPO_DIR/packaging/desktop/ouroboros.png"
+ICON="$REPO_DIR/packaging/desktop/ouroboros_v4.png"
 TEMPLATE="$REPO_DIR/packaging/desktop/ouroboros.desktop.in"
 
 # Locate the ouroboros binary: prefer the repo .venv (dev/source mode supports
