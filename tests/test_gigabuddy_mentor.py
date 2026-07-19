@@ -14,6 +14,7 @@ import pytest
 from ouroboros.gigabuddy_state import (
     NOVICE_PROJECT_ID,
     apply_gigabuddy_action,
+    gigabuddy_persona_section,
 )
 from ouroboros.gigabuddy_mentor import (
     build_gigabuddy_mentor_section,
@@ -96,6 +97,30 @@ def test_gate_on_in_mentor_thread(tmp_path, monkeypatch):
     mentor_task = {"objective": "одобряю", "project_id": ""}
     section = gigabuddy_mentor_section(mentor_task, tmp_path)
     assert pid in section
+
+
+# ── persona/mentor gate symmetry on a tombstone-recovery novice id ───
+# Live novice-safety bug (plan-review R1): the persona gate used an EXACT
+# `!= NOVICE_PROJECT_ID` while the mentor gate uses is_novice_project_id(); on a
+# recovered id (gigabuddy-novice-2) they disagreed → the novice got NO persona AND
+# the mentor section leaked into the novice thread. These pin the fixed symmetry.
+
+def test_persona_fires_for_recovered_novice_id(tmp_path, monkeypatch):
+    _load_alice(tmp_path)
+    monkeypatch.setenv("OUROBOROS_PRODUCT_MODE", "gigabuddy")
+    recovered = {"objective": "привет", "project_id": "gigabuddy-novice-2"}
+    persona = gigabuddy_persona_section(recovered, tmp_path)
+    # The persona must fire on a recovery-generation novice id, not only the exact
+    # canonical id.
+    assert persona != ""
+
+
+def test_mentor_section_empty_for_recovered_novice_id(tmp_path, monkeypatch):
+    _stage_interface_proposal(tmp_path)
+    monkeypatch.setenv("OUROBOROS_PRODUCT_MODE", "gigabuddy")
+    recovered = {"objective": "привет", "project_id": "gigabuddy-novice-2"}
+    # The mentor/evolution chrome must NEVER leak into a recovered novice thread.
+    assert gigabuddy_mentor_section(recovered, tmp_path) == ""
 
 
 # ── gigabuddy_action tool: end-to-end approval loop ──────────────────

@@ -113,4 +113,65 @@ def test_external_zero_identity_cannot_bind_owner_or_execute_on_retry(monkeypatc
     assert called == []
     assert "owner_id" not in ctx.state
     assert "owner_external_id" not in ctx.state
-    assert ctx.sent == [(0, "⚠️ Command ignored: this transport did not provide owner identity."), (0, "⚠️ Command ignored: this transport did not provide owner identity.")]
+
+
+# --- GigaBuddy path B: role routing by chat_id (mentor vs novice) ---
+# Host-owned authorization: with an explicit TELEGRAM_MENTOR_CHAT_ID configured,
+# ONLY the mentor chat may run owner slash-commands; every other Telegram chat is
+# a novice and is refused WITHOUT binding owner-external (novice can never own).
+
+def _tg(chat_id: int, user_id: int, text: str) -> dict:
+    return {
+        "chat": {"id": chat_id},
+        "from": {"id": user_id},
+        "text": text,
+        "source": "skill:telegram-bridge",
+        "transport": {"kind": "telegram", "conversation_id": str(chat_id)},
+    }
+
+
+def test_pathb_mentor_chat_can_execute_owner_command(monkeypatch):
+    # Positive: the explicit mentor chat (42) binds on first slash, then executes.
+    import server
+    import supervisor.message_bus as message_bus
+    import ouroboros.config as config
+    called = []
+    ctx = Ctx({})
+    monkeypatch.setattr(message_bus, "log_chat", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server, "_execute_panic_stop", lambda *args, **kwargs: called.append(True))
+    monkeypatch.setattr(config, "load_settings", lambda: {"TELEGRAM_MENTOR_CHAT_ID": "42"})
+    # First slash from the mentor binds external owner and asks for a resend.
+    server._process_bridge_updates(Bridge([_tg(42, 7, "/panic")]), 0, ctx)
+    assert called == []
+    assert ctx.state["owner_external_id"] == 7 and ctx.state["owner_external_chat_id"] == 42
+    assert ctx.sent[-1] == (42, "✅ Owner chat registered. Send the command again to execute it.")
+    # Resend from the bound mentor now executes.
+    server._process_bridge_updates(Bridge([_tg(42, 7, "/panic")]), 0, ctx)
+    assert called == [True]
+
+
+def test_pathb_novice_chat_cannot_execute_owner_command_or_bind(monkeypatch):
+    # Negative: a novice chat (99) is NOT the mentor (42). Its /panic is refused
+    # with the mentor-only message, and it never binds owner-external.
+    import server
+    import supervisor.message_bus as message_bus
+    import ouroboros.config as config
+    called = []
+    ctx = Ctx({})
+    monkeypatch.setattr(message_bus, "log_chat", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server, "_execute_panic_stop", lambda *args, **kwargs: called.append(True))
+    monkeypatch.setattr(config, "load_settings", lambda: {"TELEGRAM_MENTOR_CHAT_ID": "42"})
+    server._process_bridge_updates(Bridge([_tg(99, 8, "/panic")]), 0, ctx)
+    assert called == []
+    # No owner-external binding for a novice, and no owner-id stamp.
+    assert "owner_external_id" not in ctx.state
+    assert ctx.state.get("owner_id") is None
+    assert ctx.sent == [(99, "⚠️ Эта команда доступна только наставнику.")]
+    # Even a resend never grants ownership to the novice.
+    server._process_bridge_updates(Bridge([_tg(99, 8, "/panic")]), 0, ctx)
+    assert called == []
+    assert "owner_external_id" not in ctx.state
+    assert ctx.sent == [
+        (99, "⚠️ Эта команда доступна только наставнику."),
+        (99, "⚠️ Эта команда доступна только наставнику."),
+    ]

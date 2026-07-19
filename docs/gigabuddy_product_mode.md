@@ -559,6 +559,51 @@ the owner, never blind-activated.
 > `_FROZEN_TOOL_MODULES` registration for frozen/packaged builds is a deferred
 > protected-core follow-up (needs pro mode + review).
 
+### Telegram role routing — one bot, mentor + novice by chat_id (v6.85.0, path B)
+
+The `telegram-bridge` is a TWO-ROLE transport over a SINGLE `TELEGRAM_BOT_TOKEN`.
+Roles are distinguished by chat_id, not by running two bots:
+
+- **Mentor** = a host-owned EXPLICIT `TELEGRAM_MENTOR_CHAT_ID` (set once by the
+  owner via the bridge's Settings section — one token field, no extra UI window).
+  The mentor sees evolution proposals and approves them by chatting.
+- **Novice** = any OTHER chat, routed into the `gigabuddy-novice` thread so the
+  newcomer chats GigaBuddy as their onboarding mentor. Novice routing is an
+  explicit owner OPT-IN (`TELEGRAM_NOVICE_ROUTING`, default OFF); when off, the
+  legacy single-chat TOFU applies unchanged and non-owner chats are rejected.
+
+**The hard security invariant is enforced HOST-SIDE, never in the bridge.** The
+bridge is a hub-payload skill (owner-accepted `path_confinement` history), so its
+supplied `transport.role` is a display hint only and is NOT trusted for authority.
+`server._telegram_is_privileged_chat` derives owner authority ONLY from host-owned
+state — `TELEGRAM_MENTOR_CHAT_ID` (from `config.load_settings()`) or the bound
+`owner_external_chat_id`. Consequences, pinned by positive + negative tests
+(`tests/test_transport_commands.py`):
+
+- A novice chat_id can NEVER run an owner slash-command (`/panic`, `/restart`,
+  `/evolve`, `/bg`, `/review`) — it is refused BEFORE `_stamp_owner_activity` and
+  before any owner-external TOFU binding, so a novice-first `/panic` can never
+  seize ownership.
+- A non-Telegram transport (the web owner, chat_id 1) and the no-mentor-configured
+  case fall back to the existing legacy behavior (backward-compatible; the prior 5
+  transport-command tests still pass).
+
+The bridge only ROUTES: a novice message is injected with the novice project's
+internal chat_id (so the host resolves `project_id = gigabuddy-novice` and fires
+the persona), while `transport.conversation_id` stays the raw Telegram chat so
+outbound replies reach the right person; `_target_chat` prefers
+`transport.conversation_id` under `telegram_only`. The plugin.py change passed the
+REAL tri-model skill-review to `clean` on cloud.ru (env-allowlist: `_mentor_chat_id`
+reads the skill's OWN confined settings file, not host `settings.json`;
+inject-minimization: opt-in novice routing; callback-auth + stale-pending-input
+edge bugs fixed).
+
+This release also fixes a LIVE novice-safety asymmetry: `gigabuddy_persona_section`
+now gates on `is_novice_project_id(...)` (matching the mentor gate), so a
+tombstone-recovered id (`gigabuddy-novice-2`) gets the persona AND keeps the mentor
+section out of the novice thread (previously the exact `!= NOVICE_PROJECT_ID` check
+left a recovered novice with no persona while the mentor section leaked in).
+
 ## Next implementation increment
 
 1. Add a proper mentor/admin surface for stage approval, task injection, profile switching, behavior rollback, and demo acceleration (Telegram first; a clearly separated admin panel is acceptable for filming).

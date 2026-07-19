@@ -804,6 +804,64 @@ def _owner_binding_chat_id(ctx: Any, chat_id: int, is_external_transport: bool) 
         return 0
 
 
+def _telegram_conversation_id(transport: Any) -> str:
+    """Raw Telegram conversation id from a transport dict, else ''.
+
+    This is the ONLY trustworthy identity for a Telegram inbound message: the raw
+    chat the user is in. The bridge may ALSO stamp a routing hint (transport.role)
+    but that is bridge-controlled display/routing metadata — never the authority
+    for owner-command execution (a hub-payload skill must not be able to escalate a
+    novice to owner by self-declaring role).
+    """
+    if not isinstance(transport, dict):
+        return ""
+    if str(transport.get("kind") or "").strip().lower() != "telegram":
+        return ""
+    return str(transport.get("conversation_id") or "").strip()
+
+
+def _telegram_is_privileged_chat(ctx: Any, transport: Any) -> bool:
+    """HOST-OWNED authorization: is this Telegram inbound the privileged (mentor)
+    chat that may run owner slash-commands?
+
+    Authority is host-owned state ONLY, never the bridge-supplied transport.role:
+      - the explicit host setting TELEGRAM_MENTOR_CHAT_ID (owner-set), or
+      - the already-bound owner_external_chat_id (legacy TOFU owner chat).
+    A raw Telegram conversation id matching either is privileged; every other
+    Telegram chat (a novice) is NOT — so a novice can never bind owner-external or
+    execute /panic,/restart,/evolve,/bg,/review. Returns True for non-Telegram
+    transports so the legacy no-role path (web / other transports) is unchanged.
+    """
+    conv = _telegram_conversation_id(transport)
+    if not conv:
+        # Not a Telegram-identified inbound → not a novice-vs-mentor decision here;
+        # preserve existing behavior for web and other transports.
+        return True
+    # Explicit mentor chat id from HOST settings.json (owner-set, one SSOT the
+    # bridge also reads). This is the host-owned authority — not transport.role.
+    mentor = ""
+    try:
+        from ouroboros.config import load_settings
+
+        mentor = str((load_settings() or {}).get("TELEGRAM_MENTOR_CHAT_ID") or "").strip()
+    except Exception:
+        mentor = ""
+    if mentor:
+        return conv == mentor
+    # No explicit mentor configured yet → fall back to the legacy bound external
+    # owner (first-writer TOFU) so nothing breaks before the owner names a mentor.
+    try:
+        st = ctx.load_state()
+    except Exception:
+        st = {}
+    bound = str((st or {}).get("owner_external_chat_id") or "").strip()
+    if bound:
+        return conv == bound
+    # No mentor and no bound owner yet: the first Telegram chat is still allowed to
+    # bind (legacy TOFU); once bound, subsequent non-matching chats are novices.
+    return True
+
+
 def _project_id_for_registered_chat(ctx: Any, chat_id: int) -> str:
     """Return the registered project id for a project chat_id, else ``""``.
 
@@ -1086,8 +1144,21 @@ def _process_bridge_updates(bridge, offset: int, ctx: Any) -> int:
                     "transport": transport,
                     "chat_id": chat_id,
                 })
+        # HOST-OWNED role authority (GigaBuddy path B): a Telegram chat that is NOT
+        # the privileged (mentor) chat is a novice. A novice must NEVER bind owner
+        # state or execute owner slash-commands — enforced here, BEFORE owner
+        # binding, and independent of any bridge-supplied transport.role (a
+        # hub-payload skill must not be able to self-escalate a novice to owner).
+        # Non-Telegram transports (web, others) are always "privileged" here, so the
+        # legacy path is unchanged.
+        telegram_privileged = _telegram_is_privileged_chat(ctx, transport)
+
         def _stamp_owner_activity(live: dict) -> None:
-            if live.get("owner_id") is None and external_identity_present:
+            if (
+                live.get("owner_id") is None
+                and external_identity_present
+                and telegram_privileged
+            ):
                 live["owner_id"] = user_id
                 live["owner_chat_id"] = _owner_binding_chat_id(ctx, chat_id, is_external_transport)
             live["last_owner_message_at"] = now_iso
@@ -1100,6 +1171,11 @@ def _process_bridge_updates(bridge, offset: int, ctx: Any) -> int:
         if is_external_transport and is_slash_command:
             if not external_identity_present:
                 ctx.send_with_budget(chat_id, "⚠️ Command ignored: this transport did not provide owner identity.")
+                continue
+            if not telegram_privileged:
+                # Novice Telegram chat: owner commands are mentor-only. Refuse WITHOUT
+                # binding owner-external (so a novice-first /panic can never own).
+                ctx.send_with_budget(chat_id, "⚠️ Эта команда доступна только наставнику.")
                 continue
             owner_ext_id = st.get("owner_external_id")
             owner_ext_chat_id = st.get("owner_external_chat_id")

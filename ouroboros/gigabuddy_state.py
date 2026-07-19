@@ -1572,7 +1572,8 @@ def gigabuddy_persona_section(task: Dict[str, Any], drive_root: pathlib.Path | s
             return ""
         from ouroboros.project_facts import resolve_project_id
 
-        if resolve_project_id(task) != NOVICE_PROJECT_ID:
+        # Symmetric with the mentor gate (matches gigabuddy-novice-2 … recovery ids).
+        if not is_novice_project_id(resolve_project_id(task)):
             return ""
         return build_gigabuddy_persona(drive_root, query=_task_query_text(task))
     except Exception:
