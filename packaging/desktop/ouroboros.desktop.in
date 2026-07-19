@@ -4,6 +4,6 @@ Name=GigaBuddy
 Comment=Запуск веб-сервиса GigaBuddy
 Exec=__OURO_BIN__ server
 Path=__OURO_DIR__
-Icon=__OURO_ICON__
+Icon=gigabuddy
 Terminal=true
 Categories=Development;
