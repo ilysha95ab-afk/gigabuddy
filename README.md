@@ -7,7 +7,7 @@
 [![Linux](https://img.shields.io/badge/Linux-x86__64-orange.svg)](https://github.com/razzant/ouroboros/releases)
 [![Windows](https://img.shields.io/badge/Windows-x64-blue.svg)](https://github.com/razzant/ouroboros/releases)
 [![OuroborosHub](https://img.shields.io/badge/OuroborosHub-skills%20marketplace-8A2BE2.svg)](https://github.com/razzant/OuroborosHub)
-[![Version 6.85.1](https://img.shields.io/badge/version-6.85.1-green.svg)](VERSION)
+[![Version 6.85.2](https://img.shields.io/badge/version-6.85.2-green.svg)](VERSION)
 
 ## ГигаБадди — персональный ИИ-наставник адаптации
 
@@ -98,9 +98,63 @@
 
 **Транспорт одобрения:** наставник одобряет эволюции, **общаясь с ГигаБадди через Telegram-бота** (single-chat, привязанный owner-чат). Отдельного веб-интерфейса наставника нет — он пользуется обычным Ouroboros, переключённым в ГигаБадди.
 
-## 📖 Инструкция по эксплуатации (в разработке)
+## 📖 Инструкция по эксплуатации (для наставника)
 
-Пошаговый гайд для наставника появится здесь.
+Наставник настраивает ГигаБадди **заранее, до прихода новичка**. Ниже — начало пошагового гайда.
+
+### Шаг 1. Предварительная настройка Ouroboros
+
+**LLM-модели (Settings → Models).** Рабочая конфигурация:
+
+- **Основная модель (main)** и **review-модели (triad + scope)** — через **cloud.ru**: `cloudru::openai/gpt-5.5` как main, а в review-слоты — `cloudru::openai/gpt-5.5` + `cloudru::anthropic/claude-opus-4.8` ×2. Review-модели через cloud.ru важны: именно они дают **реальный triad + scope-гейт** для самоэволюции — каждая одобренная эволюция честно проходит проверку тремя моделями, а не пропускается. *(Advisory-предревью деградирует без `ANTHROPIC_API_KEY` — это ожидаемо и не блокирует triad/scope.)*
+- **Vision-модель** — **OpenRouter** `openai/gpt-4o` (чтобы ГигаБадди мог «увидеть» присланное изображение).
+
+**Включить product mode.** Settings → Behavior → Product Mode → **ГигаБадди** (или вручную `OUROBOROS_PRODUCT_MODE=gigabuddy` в `~/Ouroboros/data/settings.json`), затем **`/restart`**. До рестарта режим не активируется.
+
+### Шаг 2. Какие файлы грузить и куда
+
+Каждый сотрудник — одна папка. Точные пути:
+
+```
+~/Ouroboros/gigabuddy/employees/<employee_id>/
+├── profile/        — профиль новичка: имя, роль, отдел, опыт, интересы
+│                     (JSON или markdown с frontmatter; форматы .json / .md / .markdown / .txt; лимит файла 256 КБ)
+├── questionnaire/  — базовый опросник от HR/управления (опционально)
+└── knowledge/      — база знаний отдела (.txt / .md / .docx); по ней строится retrieval «вика Карпатого»
+```
+
+- `<employee_id>` — слаг: латиница, цифры, `-`, `_`, до 64 символов (например `alice-hr`, `leonid-dev`).
+- **Fail-soft:** пустая, отсутствующая или битая папка → нейтральный безымянный старт. ГигаБадди **не выдумывает** данные, которых нет.
+
+### Шаг 3. Когда переключаться в режим ГигаБадди
+
+Наставник делает всё **до** прихода новичка: кладёт файлы в папку сотрудника → настраивает модели → включает product mode → `/restart`. Новичок садится за **уже настроенный** ГигаБадди — ему остаётся только начать разговор.
+
+### Шаг 4. Что происходит после трекинга
+
+Новичок здоровается в чате → ГигаБадди приветствует по имени и ведёт короткое знакомство по методологии **30-60-90 / competency** (осваивание → вклад под поддержкой → самостоятельность). По итогам знакомства наполняются **реальные этапы адаптационного трека** — они появляются **слева**. Чувствительные выводы (уровень тревожности, стиль обучения) используются **внутренне** для выбора формата поддержки и **никогда не показываются новичку**.
+
+### Шаг 5. Что видно на стартовой странице ГигаБадди
+
+Трёхколоночная раскладка:
+
+- **Слева** — анимированный адаптационный трек (этапы онбординга сотрудника; в этап можно «провалиться»).
+- **В центре** — чистый изолированный чат новичка.
+- **Справа** — панель: строка **«Я сейчас: <стадия>»** (Советчик / Помощник / Партнёр) с уровнем опоры, профиль сотрудника, **прогресс широкими мазками** (полоса %), свёрнутый **«Наставнический контур»** и ссылка **«Материалы базы знаний»** (путь к папке `knowledge/`).
+
+Внизу панели — форма **PIN-return** (возврат в обычный Ouroboros по `GIGABUDDY_ADMIN_PIN`). Кнопка **Panic** видна всегда.
+
+### Шаг 6. Роли (стадии наставничества)
+
+Это **стадии поддержки** (не этапы трека). По мере эволюции ГигаБадди снимает опору:
+
+- **Советчик** — высокая опора: подробные примеры, шаблоны, безопасные первые шаги.
+- **Помощник** — средняя опора: наводящие вопросы, варианты решений, совместная проверка.
+- **Партнёр** — короткий деловой challenge-mode и подсветка рисков.
+
+Опытный сотрудник (например `leonid-dev`) доходит до Помощника быстрее — это темп `role_tempo` (см. раздел «Разрешённые виды эволюции» выше).
+
+*(Продолжение гайда — сценарий одобрения эволюций через Telegram — появится здесь.)*
 
 ---
 
@@ -628,6 +682,7 @@ and integration work.
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 6.85.2 | 2026-07-19 | **docs: README carries the mentor operating guide (Инструкция по эксплуатации).** The reserved «📖 Инструкция по эксплуатации» placeholder in the Russian GigaBuddy block is filled with the START of a step-by-step mentor guide, verified against the live code (not invented): Step 1 — Ouroboros pre-setup with the owner's working model config (main + triad/scope review via cloud.ru `cloudru::openai/gpt-5.5` + `cloudru::anthropic/claude-opus-4.8` ×2 for a REAL triad+scope self-evolution gate; vision via OpenRouter `openai/gpt-4o`) and enabling product mode (Settings → Behavior → Product Mode → ГигаБадди / `OUROBOROS_PRODUCT_MODE=gigabuddy`, then `/restart`); Step 2 — exact employee-folder paths from `ouroboros/gigabuddy_profile.py` (`~/Ouroboros/gigabuddy/employees/<employee_id>/{profile,questionnaire,knowledge}/`, profile formats `.json`/`.md`/`.markdown`/`.txt`, 256 KB cap, slug ≤64 chars, fail-soft neutral start); Step 3 — mentor loads files BEFORE the newcomer arrives; Step 4 — what happens after tracking (30-60-90/competency chat acquaintance fills the real left-column adaptation track; sensitive observations stay internal, never shown to the newcomer); Step 5 — the 3-column start page (track left / clean novice chat center / right panel with the «Я сейчас: <stage>» card + profile + broad-strokes progress + collapsed «Наставнический контур» + «Материалы базы знаний»; PIN-return + Panic always visible); Step 6 — the Советчик/Помощник/Партнёр support stages (help-levels quoted from `_stage_help`; `role_tempo` lets an experienced hire reach Помощник faster). Docs-only change; no code, tests, or GigaBuddy logic touched. |
 | 6.85.1 | 2026-07-19 | **docs: README documents the allowed GigaBuddy evolution depths + boundaries.** The Russian GigaBuddy section now carries a «Разрешённые виды эволюции и их границы» subsection matching the real `ouroboros/gigabuddy_evolution.py` (`EVOLUTION_DEPTHS`): `interface` (theme/accent/mascot/tone/layout — applyable, in-state reversible via `pre_image`, design-system-validated so no arbitrary CSS), `role_tempo` (Советчик→Помощник→Партнёр tempo — applyable, `pre_image`-reversible incl. the track), and `ui` (proposal-only ledger + git-tag hint — never self-applies code). It documents the approval protocol (`propose` applies nothing → mentor «да» in Telegram → `approve` applies interface/role_tempo or records the ui hint → `revert` restores the `pre_image`), the HARD boundaries structurally unreachable at any depth (`BIBLE.md`, safety/`SAFETY.md`, Panic, novice-safety — `internal_signals`/mentor-notes/`evolution_proposals`/`pre_image` never leak to the newcomer, PIN-return, frozen `contracts.py`/routes, core/authorization), and that mentor approval is a single-chat Telegram transport (no separate mentor web UI). Docs-only change; no code, tests, or GigaBuddy logic touched. |
 | 6.85.0 | 2026-07-19 | **feat: GigaBuddy Telegram role routing — one bot, mentor + novice by chat_id (path B).** The `telegram-bridge` becomes a two-role transport with a SINGLE `TELEGRAM_BOT_TOKEN`: the mentor is a host-owned explicit `TELEGRAM_MENTOR_CHAT_ID`, and any OTHER chat is routed (when the owner opts in via `TELEGRAM_NOVICE_ROUTING`, default OFF) into the `gigabuddy-novice` thread so the newcomer chats GigaBuddy while the mentor approves evolutions — in one bot. The HARD security invariant is enforced HOST-SIDE, never trusting bridge-supplied `transport.role`: `server._telegram_is_privileged_chat` derives authority ONLY from host-owned state (`TELEGRAM_MENTOR_CHAT_ID` or the bound `owner_external_chat_id`), so a novice chat_id can NEVER run an owner slash-command (`/panic`, `/restart`, `/evolve`, `/bg`, `/review`) and can never TOFU-bind as owner-external — pinned by positive (mentor-can) + negative (novice-refused, no binding) tests. The bridge only ROUTES (novice → novice project chat_id; `_target_chat` prefers `transport.conversation_id` under `telegram_only` so replies reach the right person); when novice routing is OFF the legacy single-chat TOFU is unchanged. Bridge change (plugin.py) passed the REAL tri-model skill-review to `clean` (env-allowlist: `_mentor_chat_id` reads the skill's OWN confined settings, not host `settings.json`; inject-minimization: novice routing opt-in; callback-auth + stale-pending-input edges fixed). Also fixes a LIVE novice-safety asymmetry: `gigabuddy_persona_section` now gates on `is_novice_project_id(...)` (matching the mentor gate), so a tombstone-recovered id (`gigabuddy-novice-2`) gets the persona AND keeps the mentor section out of the novice thread. ONE unified awareness (BIBLE P1); `safety.py`/frozen `contracts.py`/routes/`BIBLE.md` untouched. |
 | 6.84.1 | 2026-07-19 | **docs: README GigaBuddy status block reflects the live Telegram evolution loop.** The Russian GigaBuddy section at the top of the README now carries an honest three-part status — **Реализовано** (product-mode shell + PIN-return + Panic, the 3-column layout, the mentor persona with the 30-60-90/competency methodology and hard role boundary, neutral nameless start + employee-folder profile parsing, the native «вика Карпатого» `.txt`/`.md`/`.docx` ingest, `/clean`, the reversible self-evolution engine with `interface`/`role_tempo`/`ui` depths, the now-LIVE `telegram-bridge` with TOFU owner-binding, and the mentor-over-Telegram approval loop), **Работает (подтверждено)** (live Telegram round-trip, the live product shell, and the host-attested 11-test evolution engine), and **Тестируется / в работе** (live acceptance of the full Telegram approval flow on a real employee, «вика Карпатого» retrieval quality without an Anthropic key, and the two deferred protected-core follow-ups). It also reserves a visible «📖 Инструкция по эксплуатации (в разработке)» placeholder section for the future mentor operating guide. Docs-only change; no code, tests, or GigaBuddy logic touched. |
