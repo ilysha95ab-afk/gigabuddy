@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Ouroboros
-Comment=Запуск веб-сервиса Ouroboros
+Name=GigaBuddy
+Comment=Запуск веб-сервиса GigaBuddy
 Exec=__OURO_BIN__ server
 Path=__OURO_DIR__
 Icon=__OURO_ICON__
