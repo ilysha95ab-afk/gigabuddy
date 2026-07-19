@@ -433,23 +433,36 @@ def test_flexible_profile_frontmatter_name_no_llm(tmp_path, monkeypatch):
     assert calls["n"] == 0
 
 
-def test_flexible_profile_freeform_uses_llm(tmp_path, monkeypatch):
-    """Free-form «имя - Алиса» (dash separator, no frontmatter) that the
-    deterministic parser cannot key routes through the LLM extractor. Simulate a
-    successful light-lane extraction (env has no key, so we monkeypatch the send)."""
+def test_flexible_profile_freeform_deterministic(tmp_path, monkeypatch):
+    """A bullet-list profile («- Имя: Алиса») under a colon-less heading is
+    extracted DETERMINISTICALLY (no LLM anywhere in the path — the LLM extractor
+    was removed in v6.87.3 after the cloud.ru response_format rejection)."""
     from ouroboros import gigabuddy_profile
 
     monkeypatch.setattr(
         gigabuddy_profile, "_llm_extract_profile",
-        lambda _text: {"name": "Алиса", "role": "HR", "department": "Люди и культура"})
-
+        lambda _t: (_ for _ in ()).throw(AssertionError("LLM must never run")))
     frag = gigabuddy_profile.extract_profile_flexible(
-        "имя - Алиса, работает в HR, отдел Люди и культура", is_json=False)
+        "Портрет новичка\n\n"
+        "- Имя: Алиса\n"
+        "- Роль: HR\n"
+        "- Подразделение: Люди и культура\n",
+        is_json=False)
     # _normalize_raw_profile lifts name/role to the top and keeps the full
     # profile block nested (department lives there).
     assert frag["name"] == "Алиса"
     assert frag["role"] == "HR"
     assert frag["profile"]["department"] == "Люди и культура"
+
+
+def test_flexible_profile_pure_prose_yields_no_name(tmp_path, monkeypatch):
+    """Pure prose with NO key: value lines honestly yields no name (neutral
+    start) — deterministic extraction never fabricates fields."""
+    from ouroboros import gigabuddy_profile
+
+    frag = gigabuddy_profile.extract_profile_flexible(
+        "Знакомьтесь, у нас новый сотрудник, работает в HR.", is_json=False)
+    assert not frag.get("name")
 
 
 class _FakeLLMClient:
@@ -577,18 +590,22 @@ def test_flexible_profile_json_never_calls_llm(tmp_path, monkeypatch):
     assert frag["name"] == "Нова"
 
 
-def test_flexible_profile_load_freeform_file_via_llm(tmp_path, monkeypatch):
-    """End-to-end: a free-form .txt profile with no frontmatter loads a name
-    through the flexible extractor (LLM path monkeypatched to succeed)."""
+def test_flexible_profile_load_bullet_file_deterministic(tmp_path, monkeypatch):
+    """End-to-end: a real bullet-list .txt profile (heading without a colon,
+    then «- Имя: …» lines — the owner's actual file format) loads the name
+    deterministically, with no LLM anywhere in the path."""
     from ouroboros import gigabuddy_profile
 
     monkeypatch.setattr(
         gigabuddy_profile, "_llm_extract_profile",
-        lambda _t: {"name": "Алиса", "role": "HR-специалист"})
+        lambda _t: (_ for _ in ()).throw(AssertionError("LLM must never run")))
     emp_dir = gigabuddy_profile.employee_dir("freeform-emp") / "profile"
     emp_dir.mkdir(parents=True, exist_ok=True)
     (emp_dir / "about.txt").write_text(
-        "Знакомьтесь — имя - Алиса, наш новый HR-специалист.", encoding="utf-8")
+        "Портрет новичка\n\n"
+        "- Имя: Алиса\n"
+        "- Роль: HR-специалист\n",
+        encoding="utf-8")
     result = apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "freeform-emp"})
     assert result["audit"]["loaded"] is True
     assert result["view"]["profile"]["name"] == "Алиса"

@@ -487,26 +487,9 @@ def _run_knowledge_rebuild(employee_id: str) -> None:
 
 
 def _maybe_trigger_knowledge_rebuild(view: Dict[str, Any]) -> None:
-    """When the panel view reports knowledgeBase.status == 'building', spawn a
-    background (daemon) LLM rebuild for that employee. Deduplicated so concurrent
-    get_state polls don't launch overlapping builds. Non-blocking, fail-soft."""
-    try:
-        kb = view.get("knowledgeBase") if isinstance(view, dict) else None
-        if not isinstance(kb, dict) or kb.get("status") != "building":
-            return
-        emp = view.get("activeEmployeeId")
-        employee_id = str(emp or "").strip()
-        if not employee_id:
-            return
-        with _knowledge_rebuild_lock:
-            if employee_id in _knowledge_rebuild_inflight:
-                return
-            _knowledge_rebuild_inflight.add(employee_id)
-        threading.Thread(
-            target=_run_knowledge_rebuild, args=(employee_id,), daemon=True
-        ).start()
-    except Exception:
-        pass
+    """No-op: the simplified knowledge base builds on demand (no background LLM
+    rebuild). Kept as a seam so callers don't need to change."""
+    return
 
 
 def _handle_gigabuddy_action(request: Request, body: Dict[str, Any]) -> JSONResponse:

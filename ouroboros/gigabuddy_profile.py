@@ -121,50 +121,35 @@ def _coerce_interests(value: Any) -> List[str]:
     return items[:16]
 
 
-def _parse_markdown_frontmatter(text: str) -> Dict[str, Any]:
-    """Parse a simple ``key: value`` frontmatter (optionally fenced by ``---``).
+def _scan_profile_text(text: str) -> Dict[str, Any]:
+    """Scan ALL lines of a free-form profile for ``key: value`` pairs.
 
-    Not YAML: only flat ``key: value`` lines are read, plus an ``interests`` value
-    that may be a comma/newline-separated list. Everything after the frontmatter
-    (or the whole body when unfenced) is captured as ``experience`` if not already
-    set — so a mentor can write a couple of lines of prose."""
+    Unlike a frontmatter parser, this does not stop at the first non-kv line —
+    it scans every line for ``[-*]? key: value`` so bullet-list profiles
+    (``- Имя: Алиса Смирнова``) work without YAML-style frontmatter. Continuation
+    lines (no colon) after a kv-line are appended to the previous value. The full
+    text is also captured as ``experience`` if not already set."""
     lines = text.splitlines()
     data: Dict[str, Any] = {}
-    body_start = 0
-    if lines and lines[0].strip() == "---":
-        end = None
-        for i in range(1, len(lines)):
-            if lines[i].strip() == "---":
-                end = i
-                break
-        if end is not None:
-            fm_lines = lines[1:end]
-            body_start = end + 1
-        else:
-            fm_lines = lines[1:]
-            body_start = len(lines)
-    else:
-        # No fence: read leading key:value lines until a blank/non-kv line.
-        fm_lines = []
-        for i, line in enumerate(lines):
-            if not line.strip():
-                body_start = i + 1
-                break
-            if re.match(r"^[A-Za-zА-Яа-я_][\w \-А-Яа-я]*:\s", line):
-                fm_lines.append(line)
-                body_start = i + 1
-            else:
-                body_start = i
-                break
-    for line in fm_lines:
-        m = re.match(r"^\s*([\w \-А-Яа-я]+?)\s*:\s*(.*)$", line)
-        if not m:
+    last_key: Optional[str] = None
+    for line in lines:
+        stripped = line.strip()
+        # Separator fences (---, ***, ===) and markdown headings (# ...) are
+        # structural, not content: they must not continue a previous kv value.
+        if stripped and (
+            set(stripped) <= {"-", "*", "=", "_"}
+            or stripped.startswith("#")
+        ):
             continue
-        key = m.group(1).strip().lower().replace(" ", "_")
-        data[key] = m.group(2).strip()
-    body = "\n".join(lines[body_start:]).strip()
-    if body and not data.get("experience"):
-        data["experience"] = body
+        m = re.match(r"^\s*[-*]?\s*(.+?)\s*:\s*(.*)$", line)
+        if m:
+            key = m.group(1).strip().lower().replace(" ", "_")
+            data[key] = m.group(2).strip()
+            last_key = key
+        elif last_key and line.strip():
+            data[last_key] = (str(data.get(last_key, "")) + " " + line.strip()).strip()
+    if text.strip() and not data.get("experience"):
+        data["experience"] = text.strip()
     return data
 
 
@@ -342,41 +327,22 @@ def parse_profile_text(text: str, *, is_json: bool) -> Dict[str, Any]:
             return {}
         raw = loaded if isinstance(loaded, dict) else {}
     else:
-        raw = _parse_markdown_frontmatter(text)
+        raw = _scan_profile_text(text)
     if not isinstance(raw, dict) or not raw:
         return {}
     return _normalize_raw_profile(raw)
 
 
 def extract_profile_flexible(text: str, *, is_json: bool) -> Dict[str, Any]:
-    """Extract a profile fragment from ANY-FORM text (LLM-first, deterministic
-    fallback).
+    """Extract a profile fragment from ANY-FORM text (deterministic only).
 
-    For non-JSON text (free-form prose, «Имя: Алиса», «имя - Алиса»), try the LLM
-    extractor first; if it yields a name, use it. Otherwise fall back to the
-    deterministic frontmatter parser. JSON documents are always parsed
-    deterministically (they are already structured). Fully fail-soft: any failure
-    degrades to the deterministic result, then to an empty fragment (neutral
-    start). Never fabricates fields the source did not contain."""
+    JSON is parsed as JSON. Non-JSON text is scanned for ``key: value`` pairs
+    across all lines (bullet-list friendly). Fully fail-soft: any failure
+    degrades to an empty fragment (neutral start). Never fabricates fields the
+    source did not contain."""
     if not text or not text.strip():
         return {}
-    deterministic = parse_profile_text(text, is_json=is_json)
-    # JSON is already structured — trust the deterministic parse.
-    if is_json:
-        return deterministic
-    # Deterministic frontmatter already found a name → good enough, skip the LLM.
-    if deterministic.get("name"):
-        return deterministic
-    # Free-form text without a frontmatter name → let the LLM pull the fields.
-    llm_raw = _llm_extract_profile(text)
-    if llm_raw:
-        llm_fragment = _normalize_raw_profile(llm_raw)
-        if llm_fragment.get("name"):
-            return llm_fragment
-        # LLM found partial fields but no name: prefer whichever fragment is richer.
-        if llm_fragment and not deterministic:
-            return llm_fragment
-    return deterministic
+    return parse_profile_text(text, is_json=is_json)
 
 
 def load_employee_profile(employee_id: str) -> Optional[Dict[str, Any]]:

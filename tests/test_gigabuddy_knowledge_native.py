@@ -1,240 +1,228 @@
-"""C #4 rework (v6.82.0) — NATIVE GigaBuddy knowledge pipeline.
+"""Native GigaBuddy department knowledge-base tests (simplified, v6.87.3).
 
-The mentor drops raw text files (.txt/.md/.docx) into ``employees/<id>/knowledge/``
-WITHOUT any manual tags/[[links]]/headings. The pipeline extracts text and builds
-the wiki (chunks + tags + cross-topic links) with the LLM (Karpathy methodology),
-falling back to deterministic structural chunking when the LLM is unavailable.
-The built wiki is persisted to ``knowledge/.wiki_index/index.json`` and rebuilt
-when the folder changes; a ``knowledgeBase`` status field drives the panel
-indicator. Still NOT RAG, still folder-confined / fail-soft / bounded.
+No LLM, no BM25, no persistence — pure keyword-matching over structural chunks.
 """
-
 import json
+import os
+from pathlib import Path
 
 import pytest
 
 from ouroboros import gigabuddy_knowledge as gk
-from ouroboros.gigabuddy_state import build_gigabuddy_view, default_gigabuddy_state
 
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _isolate_employees_root(tmp_path, monkeypatch):
-    monkeypatch.setenv(
-        "OUROBOROS_GIGABUDDY_EMPLOYEES_ROOT", str(tmp_path / "employees")
-    )
+def _isolate(monkeypatch, tmp_path):
+    """Isolate employees root + clear process-local cache."""
+    root = tmp_path / "employees"
+    root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("OUROBOROS_GIGABUDDY_EMPLOYEES_ROOT", str(root))
     gk.clear_cache()
     yield
     gk.clear_cache()
 
 
-def _kdir(tmp_path, employee_id="alice-demo"):
-    d = tmp_path / "employees" / employee_id / "knowledge"
+def _emp_dir(emp_id="alice"):
+    root = Path(os.environ["OUROBOROS_GIGABUDDY_EMPLOYEES_ROOT"])
+    d = root / emp_id / "knowledge"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def _write(kdir, name, text):
-    (kdir / name).write_text(text, encoding="utf-8")
+# ---------------------------------------------------------------------------
+# Tests to KEEP (unchanged spirit, adapted to simplified API)
+# ---------------------------------------------------------------------------
 
-
-# --- Part 0/1: native ingest of RAW files (no manual markup) ------------------
-
-
-def test_raw_txt_ingested_without_any_markup(tmp_path):
-    kdir = _kdir(tmp_path)
-    # plain prose, no #tags, no [[links]], no headings
-    _write(kdir, "vpn.txt", "Как подключить VPN: установите клиент и войдите.")
-    idx = gk.build_index("alice-demo", use_llm=False)
-    assert not idx.is_empty()
-    assert any("vpn" in c.source.lower() for c in idx.chunks)
-
-
-def test_docx_supported_or_honestly_skipped(tmp_path):
-    """`.docx` is extracted when a library is present, otherwise honestly skipped
-    (never fabricated). Either way the pipeline does not raise."""
-    kdir = _kdir(tmp_path)
-    # a .docx we cannot easily synthesize here; assert the extractor contract:
-    # _extract_text returns "" for an unreadable/absent-lib docx, never raises.
-    fake = kdir / "policy.docx"
-    fake.write_bytes(b"not a real docx")
-    text = gk._extract_text(fake)  # must be fail-soft, never raise
-    # honest fail-soft: None (unreadable / lib missing / invalid docx) or "" —
-    # never a fabricated body. build_index treats both as "no text" and skips.
-    assert text is None or isinstance(text, str)
-
-
-def test_docx_extension_recognized_in_walker(tmp_path):
-    assert ".docx" in gk._DOCX_EXTS
-    assert ".txt" in gk._TEXT_EXTS
-    assert ".md" in gk._TEXT_EXTS
-
-
-# --- Part 1: LLM build (mocked) + deterministic fallback ---------------------
-
-
-class _StubMsg(dict):
-    pass
-
-
-def _stub_llm_chat(payload):
-    """Return a deterministic JSON wiki so we can assert LLM-built tags/links."""
-    def _chat(**kwargs):
-        return ({"content": json.dumps(payload, ensure_ascii=False)}, {})
-    return _chat
-
-
-def test_llm_build_produces_tags_and_links(tmp_path, monkeypatch):
-    kdir = _kdir(tmp_path)
-    _write(kdir, "access.txt", "Заявка на доступ подаётся через портал.")
-    payload = {
-        "chunks": [
-            {
-                "heading": "Оформление доступов",
-                "body": "Заявка на доступ подаётся через портал заявок.",
-                "tags": ["доступы", "портал"],
-                "links": ["VPN"],
-            }
-        ]
-    }
-    monkeypatch.setattr(
-        "ouroboros.llm.LLMClient.chat", lambda self, **kw: _stub_llm_chat(payload)()
+def test_raw_txt_ingested_without_any_markup():
+    """Plain .txt prose is chunked and retrievable without manual tags/links."""
+    d = _emp_dir()
+    (d / "vpn.txt").write_text(
+        "# Настройка VPN\n"
+        "Для доступа к корпоративной сети используйте Cisco AnyConnect.\n"
+        "Подключение выполняется через шлюз vpn.company.local.\n"
+        "Свяжитесь с IT-отделом для получения учётных данных.\n",
+        encoding="utf-8",
     )
-    idx = gk.build_index("alice-demo", use_llm=True)
-    assert not idx.is_empty()
-    c = idx.chunks[0]
-    assert c.heading == "Оформление доступов"
-    assert "доступы" in c.tags
-    # cross-topic link generated by the LLM (normalized topic key)
-    assert any("vpn" in l for l in c.links)
-    assert idx.llm_built is True
+    idx = gk.build_index("alice")
+    assert idx is not None
+    assert len(idx.chunks) >= 1
+    # The chunk heading should contain "VPN"
+    headings = [c.heading.lower() for c in idx.chunks]
+    assert any("vpn" in h for h in headings)
 
 
-def test_llm_failure_falls_back_to_structural(tmp_path, monkeypatch):
-    kdir = _kdir(tmp_path)
-    _write(kdir, "vac.txt", "Отпуск оформляется через HR-систему за две недели.")
-
-    def _boom(self, **kw):
-        raise RuntimeError("provider down")
-
-    monkeypatch.setattr("ouroboros.llm.LLMClient.chat", _boom)
-    idx = gk.build_index("alice-demo", use_llm=True)
-    # still built (deterministic fallback), just not llm_built
-    assert not idx.is_empty()
-    assert idx.llm_built is False
-
-
-def test_hot_path_never_calls_llm(tmp_path, monkeypatch):
-    kdir = _kdir(tmp_path)
-    _write(kdir, "vpn.txt", "VPN: установите клиент.")
-    called = {"n": 0}
-
-    def _spy(self, **kw):
-        called["n"] += 1
-        return ({"content": "{}"}, {})
-
-    monkeypatch.setattr("ouroboros.llm.LLMClient.chat", _spy)
-    # get_index / knowledge_context_block are the hot path — no LLM allowed
-    gk.get_index("alice-demo")
-    gk.knowledge_context_block("alice-demo", "vpn")
-    gk.knowledge_status("alice-demo")
-    assert called["n"] == 0
+def test_docx_supported_or_honestly_skipped():
+    """.docx extraction is fail-soft: supported via docx2txt or honestly skipped."""
+    if not gk.docx_supported():
+        # Not installed — just verify the function returns False
+        assert gk.docx_supported() is False
+        return
+    # docx2txt IS installed — write a minimal .docx is hard without a library,
+    # so just verify the function returns True and extraction of a non-docx
+    # file returns None or empty.
+    d = _emp_dir()
+    fake = d / "fake.docx"
+    fake.write_bytes(b"not a real docx")
+    text = gk._extract_text(fake)
+    # Should not raise; returns None or empty string
+    assert text is None or text == ""
 
 
-# --- Part 2: persistence / status / rebuild / auto-update ---------------------
+def test_structural_chunking_by_heading():
+    """Multiple headings produce multiple chunks with breadcrumbs."""
+    d = _emp_dir()
+    (d / "hr.md").write_text(
+        "# Доступы\n"
+        "Порядок получения доступов к SAP.\n\n"
+        "## Запрос\n"
+        "Создайте тикет в Jira.\n\n"
+        "## Согласование\n"
+        "Руководитель подтверждает.\n",
+        encoding="utf-8",
+    )
+    idx = gk.build_index("alice")
+    headings = [c.heading for c in idx.chunks]
+    # At least top-level "Доступы" appears
+    assert any("Доступы" in h for h in headings)
+    # Sub-headings create their own chunks
+    assert any("Запрос" in h for h in headings)
+    assert any("Согласование" in h for h in headings)
 
 
-def test_status_lifecycle_empty_building_ready(tmp_path):
-    # empty
-    assert gk.knowledge_status("alice-demo")["status"] == "empty"
-    kdir = _kdir(tmp_path)
-    _write(kdir, "vpn.txt", "VPN текст.")
+def test_retrieval_finds_relevant_chunk():
+    """A keyword search returns the most relevant chunk in top results."""
+    d = _emp_dir()
+    (d / "access.md").write_text(
+        "# Доступы\n"
+        "Порядок получения доступов к корпоративным системам.\n"
+        "SAP SuccessFactors, Jira, Confluence.\n",
+        encoding="utf-8",
+    )
+    (d / "vacation.md").write_text(
+        "# Отпуск\n"
+        "Заявление на отпуск подаётся через портал SelfService.\n"
+        "Срок — не менее 3 дней до начала.\n",
+        encoding="utf-8",
+    )
+    idx = gk.build_index("alice")
+    results = gk.search("доступы SAP", idx, top_n=3)
+    assert len(results) >= 1
+    # The access chunk should rank first (heading match)
+    top = results[0]
+    assert "Доступы" in top.chunk.heading or "доступ" in top.chunk.heading.lower()
+
+
+def test_empty_query_returns_empty():
+    """Empty or whitespace-only query returns no results."""
+    d = _emp_dir()
+    (d / "doc.txt").write_text("# Раздел\nТекст раздела.\n", encoding="utf-8")
+    idx = gk.build_index("alice")
+    assert gk.search("", idx) == []
+    assert gk.search("   ", idx) == []
+
+
+def test_connection_graph():
+    """Chunks sharing >=2 significant heading/tag tokens are connected."""
+    d = _emp_dir()
+    (d / "doc.md").write_text(
+        "# Доступы SAP SuccessFactors\n"
+        "Настройка доступов в SAP.\n\n"
+        "# Доступы SAP Jira\n"
+        "Управление доступами в Jira Service Desk.\n",
+        encoding="utf-8",
+    )
+    idx = gk.build_index("alice")
+    graph = gk._build_connection_graph(idx.chunks)
+    # At least one pair of chunks should be connected (both share "доступы")
+    assert any(len(neighbours) > 0 for neighbours in graph.values())
+
+
+def test_format_excerpt():
+    """format_excerpt produces a labelled excerpt from a chunk."""
+    from ouroboros.gigabuddy_knowledge import Chunk, format_excerpt
+
+    chunk = Chunk(
+        heading="Тестовый раздел",
+        breadcrumbs=["Документ", "Тестовый раздел"],
+        source_file="doc.md",
+        body="Содержимое раздела для проверки форматирования.",
+        tags=["тест"],
+    )
+    excerpt = format_excerpt(chunk)
+    assert "Тестовый раздел" in excerpt
+    assert "doc.md" in excerpt
+    assert "Содержимое" in excerpt
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle tests (UPDATED: no "building" state)
+# ---------------------------------------------------------------------------
+
+def test_status_lifecycle_empty_to_ready():
+    """Status goes empty → ready (no building step)."""
+    # No files → empty
+    d = _emp_dir()  # dir exists but empty
+    status = gk.knowledge_status("alice")
+    assert status["status"] == "empty"
+    assert status["llmBuilt"] is False
+
+    # Add a file → ready after build
+    (d / "doc.txt").write_text("# Документ\nТекст.\n", encoding="utf-8")
     gk.clear_cache()
-    # sources present, not built yet → building
-    assert gk.knowledge_status("alice-demo")["status"] == "building"
-    # build + persist → ready
-    gk.rebuild_knowledge("alice-demo", use_llm=False)
-    st = gk.knowledge_status("alice-demo")
-    assert st["status"] == "ready"
-    assert st["docCount"] == 1
-    assert st["chunkCount"] >= 1
+    status = gk.knowledge_status("alice")
+    assert status["status"] == "ready"
+    assert status["docCount"] >= 1
+    assert status["chunkCount"] >= 1
 
 
-def test_wiki_index_persisted_in_service_dir(tmp_path):
-    kdir = _kdir(tmp_path)
-    _write(kdir, "vpn.txt", "VPN текст.")
-    gk.rebuild_knowledge("alice-demo", use_llm=False)
-    wi = kdir / ".wiki_index" / "index.json"
-    assert wi.exists()
-    data = json.loads(wi.read_text(encoding="utf-8"))
-    assert data["schema"] == gk._WIKI_INDEX_SCHEMA
-    assert isinstance(data["chunks"], list) and data["chunks"]
-
-
-def test_service_dir_excluded_from_ingest(tmp_path):
-    kdir = _kdir(tmp_path)
-    _write(kdir, "vpn.txt", "VPN текст.")
-    gk.rebuild_knowledge("alice-demo", use_llm=False)
-    sig_before = gk._live_signature("alice-demo")
-    # rebuilding again must not change the source signature (index dir excluded)
-    gk.rebuild_knowledge("alice-demo", use_llm=False)
-    assert gk._live_signature("alice-demo") == sig_before
-
-
-def test_delete_source_marks_building_again(tmp_path):
-    kdir = _kdir(tmp_path)
-    _write(kdir, "vpn.txt", "VPN текст.")
-    _write(kdir, "vac.txt", "Отпуск текст.")
-    gk.rebuild_knowledge("alice-demo", use_llm=False)
-    assert gk.knowledge_status("alice-demo")["status"] == "ready"
-    (kdir / "vpn.txt").unlink()
+def test_delete_source_marks_empty_again():
+    """Deleting the only source file returns status to empty."""
+    d = _emp_dir()
+    (d / "doc.txt").write_text("# Документ\nТекст.\n", encoding="utf-8")
+    gk.build_index("alice")
     gk.clear_cache()
-    # folder composition changed → stale persisted index → building
-    assert gk.knowledge_status("alice-demo")["status"] == "building"
+    status = gk.knowledge_status("alice")
+    assert status["status"] == "ready"
 
-
-def test_persisted_index_survives_reload(tmp_path):
-    kdir = _kdir(tmp_path)
-    _write(kdir, "vpn.txt", "VPN: установите клиент и войдите.")
-    gk.rebuild_knowledge("alice-demo", use_llm=False)
+    (d / "doc.txt").unlink()
     gk.clear_cache()
-    # load straight from disk (no rebuild) and retrieve
-    loaded = gk.load_persisted_index("alice-demo")
-    assert loaded is not None and not loaded.is_empty()
+    status = gk.knowledge_status("alice")
+    assert status["status"] == "empty"
 
 
-# --- retrieval + honest empty -------------------------------------------------
+# ---------------------------------------------------------------------------
+# API compatibility tests
+# ---------------------------------------------------------------------------
+
+def test_rebuild_knowledge_is_no_op_compatible():
+    """rebuild_knowledge(employee_id, use_llm=True) still works (use_llm ignored)."""
+    d = _emp_dir()
+    (d / "doc.txt").write_text("# Документ\nТекст.\n", encoding="utf-8")
+    # Should not raise even with use_llm=True
+    idx = gk.rebuild_knowledge("alice", use_llm=True)
+    assert idx is not None
+    assert len(idx.chunks) >= 1
 
 
-def test_retrieval_relevant_and_honest_empty(tmp_path):
-    kdir = _kdir(tmp_path)
-    _write(kdir, "vpn.txt", "Как подключить VPN: установите клиент, войдите логином.")
-    _write(kdir, "access.txt", "Как оформить доступы: заявка через портал заявок.")
-    gk.rebuild_knowledge("alice-demo", use_llm=False)
-    block = gk.knowledge_context_block("alice-demo", "как оформить доступы")
-    assert "доступ" in block.lower()
-    block2 = gk.knowledge_context_block("alice-demo", "рецепт борща")
-    assert "не" in block2.lower()  # honest "not in the base" note
+def test_knowledge_context_block_returns_string():
+    """knowledge_context_block returns a non-empty string for a match."""
+    d = _emp_dir()
+    (d / "access.md").write_text(
+        "# Доступы\nПорядок получения доступов к системам.\n",
+        encoding="utf-8",
+    )
+    block = gk.knowledge_context_block("alice", "доступы")
+    assert isinstance(block, str)
+    assert len(block) > 0
+    assert "Доступы" in block
 
 
-# --- Part 3: knowledgeBase view field ----------------------------------------
-
-
-def test_view_exposes_knowledge_base_status_empty(tmp_path):
-    state = default_gigabuddy_state()
-    view = build_gigabuddy_view(state)
-    kb = view.get("knowledgeBase")
-    assert isinstance(kb, dict)
-    assert set(kb.keys()) >= {"status", "docCount", "chunkCount"}
-    # blank/neutral default employee → no knowledge folder → empty
-    assert kb["status"] in {"empty", "building", "ready", "error"}
-
-
-def test_view_knowledge_base_ready_counts(tmp_path):
-    kdir = _kdir(tmp_path, "novice")
-    _write(kdir, "vpn.txt", "VPN текст.")
-    gk.rebuild_knowledge("novice", use_llm=False)
-    state = default_gigabuddy_state()  # default active employee id == "novice"
-    view = build_gigabuddy_view(state)
-    kb = view["knowledgeBase"]
-    assert kb["status"] == "ready"
-    assert kb["docCount"] == 1
+def test_knowledge_context_block_empty_on_no_match():
+    """knowledge_context_block returns empty string when no files exist."""
+    _emp_dir()  # empty
+    block = gk.knowledge_context_block("alice", "что-то")
+    assert block == ""

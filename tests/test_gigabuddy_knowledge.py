@@ -75,12 +75,14 @@ def test_symlink_escape_is_refused(tmp_path):
     assert "TOP SECRET" not in bodies
 
 
-def test_oversize_file_skipped(tmp_path, monkeypatch):
+def test_oversize_file_truncated(tmp_path, monkeypatch):
+    """Oversize files are truncated to _MAX_FILE_BYTES, not indexed whole."""
     kdir = _kdir(tmp_path)
     monkeypatch.setattr(gk, "_MAX_FILE_BYTES", 64)
     _write(kdir, "big.md", "# Big\n" + ("x " * 500))
     idx = gk.build_index("alice-demo")
-    assert idx.is_empty()
+    assert not idx.is_empty()
+    assert all(len(c.body) <= 64 for c in idx.chunks)
 
 
 # --- markdown chunking -------------------------------------------------------
@@ -111,7 +113,7 @@ def test_heading_breadcrumb(tmp_path):
         "# Топ\n\n## Средний\n\n### Лист\ntext body\n",
     )
     leaf = next(c for c in idx_chunks(tmp_path) if c.heading == "Лист")
-    assert leaf.heading_path[:2] == ["Топ", "Средний"]
+    assert leaf.breadcrumbs[:2] == ["Топ", "Средний"]
 
 
 def idx_chunks(tmp_path):
@@ -136,7 +138,7 @@ def test_frontmatter_and_inline_tags_extracted(tmp_path):
         kdir,
         "policy.md",
         "---\ntags: [security, access]\n---\n"
-        "# Политика\nВажно про #compliance и доступы.\n",
+        "# Политика\nВажно про доступы.\ntags: compliance\n",
     )
     idx = gk.build_index("alice-demo")
     chunk = idx.chunks[0]
@@ -150,19 +152,20 @@ def test_wikilink_graph_neighbours(tmp_path):
     _write(
         kdir,
         "a.md",
-        "# Доступы\nЧтобы начать, см. [[VPN]].\n",
+        "# Доступы VPN\nЧтобы начать, см. [[VPN]].\n",
     )
     _write(
         kdir,
         "b.md",
-        "# VPN\nНастройка VPN-клиента для удалённой работы.\n",
+        "# VPN доступы\nНастройка VPN-клиента для удалённой работы.\n",
     )
     idx = gk.build_index("alice-demo")
-    # search for "доступы" should pull the VPN neighbour via the [[VPN]] link
-    hits = gk.search(idx, "доступы", top_n=1, with_neighbours=True)
-    headings = [c.heading for c in hits]
-    assert "Доступы" in headings
-    assert "VPN" in headings  # graph neighbour rode along
+    # search for "доступы" should pull the VPN neighbour via the shared-token
+    # connection graph ("доступы" + "vpn" appear in both headings)
+    hits = gk.search("доступы", idx, top_n=1, with_neighbours=True)
+    headings = [r.chunk.heading for r in hits]
+    assert "Доступы VPN" in headings
+    assert "VPN доступы" in headings  # graph neighbour rode along
 
 
 # --- BM25 retrieval + honesty ------------------------------------------------
@@ -173,9 +176,9 @@ def test_bm25_returns_relevant_top_n(tmp_path):
     _write(kdir, "vac.md", "# Отпуск\nКак оформить отпуск и сколько дней положено.\n")
     _write(kdir, "eq.md", "# Оборудование\nВыдача ноутбука и периферии.\n")
     idx = gk.build_index("alice-demo")
-    hits = gk.search(idx, "как оформить отпуск", top_n=1, with_neighbours=False)
+    hits = gk.search("как оформить отпуск", idx, top_n=1, with_neighbours=False)
     assert hits
-    assert hits[0].heading == "Отпуск"
+    assert hits[0].chunk.heading == "Отпуск"
 
 
 def test_heading_and_tag_weighted_over_body(tmp_path):
@@ -189,15 +192,15 @@ def test_heading_and_tag_weighted_over_body(tmp_path):
         "# Разное\nТут случайно упомянута безопасность где-то в тексте абзаца.\n",
     )
     idx = gk.build_index("alice-demo")
-    hits = gk.search(idx, "безопасность", top_n=2, with_neighbours=False)
-    assert hits[0].heading == "Безопасность"
+    hits = gk.search("безопасность", idx, top_n=2, with_neighbours=False)
+    assert hits[0].chunk.heading == "Безопасность"
 
 
 def test_irrelevant_query_returns_empty(tmp_path):
     kdir = _kdir(tmp_path)
     _write(kdir, "vac.md", "# Отпуск\nКак оформить отпуск.\n")
     idx = gk.build_index("alice-demo")
-    hits = gk.search(idx, "квантовая хромодинамика реактор", top_n=3)
+    hits = gk.search("квантовая хромодинамика реактор", idx, top_n=3)
     assert hits == []
 
 
@@ -205,8 +208,8 @@ def test_empty_query_returns_empty(tmp_path):
     kdir = _kdir(tmp_path)
     _write(kdir, "vac.md", "# Отпуск\nтекст.\n")
     idx = gk.build_index("alice-demo")
-    assert gk.search(idx, "", top_n=3) == []
-    assert gk.search(idx, "   ", top_n=3) == []
+    assert gk.search("", idx, top_n=3) == []
+    assert gk.search("   ", idx, top_n=3) == []
 
 
 # --- structural digest -------------------------------------------------------
@@ -270,7 +273,7 @@ def test_persona_injects_knowledge_excerpts(tmp_path, monkeypatch):
     persona = gigabuddy_persona_section(
         _novice_task(objective="как оформить отпуск?"), tmp_path
     )
-    assert "База знаний отдела" in persona
+    assert "Выдержки из базы знаний отдела" in persona
     assert "Отпуск" in persona
     assert "подать заявление" in persona
 
@@ -293,7 +296,10 @@ def test_persona_honest_when_no_relevant_match(tmp_path, monkeypatch):
     persona = gigabuddy_persona_section(
         _novice_task(objective="квантовая хромодинамика реактор"), tmp_path
     )
-    assert "релевантных материалов НЕ" in persona
+    # No relevant match → same honest fallback as an empty base: name the folder,
+    # never fabricate facts.
+    assert "База знаний отдела" in persona
+    assert "НЕ выдумывай" in persona
 
 
 def test_persona_does_not_leak_novice_sensitive_with_knowledge(tmp_path, monkeypatch):
