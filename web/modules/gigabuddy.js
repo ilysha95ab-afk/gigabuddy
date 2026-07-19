@@ -98,6 +98,13 @@ function normalizeView(state = {}) {
         events: Array.isArray(source.events) ? source.events : [],
         questionnairePackage: { ...GIGABUDDY_DEMO_STATE.questionnairePackage, ...(source.questionnairePackage || {}) },
         knowledgeBase: normalizeKnowledgeBase(source.knowledgeBase),
+        profileSummary: (() => {
+            const s = source.profileSummary && typeof source.profileSummary === 'object' ? source.profileSummary : {};
+            return {
+                headline: String(s.headline || ''),
+                tags: Array.isArray(s.tags) ? s.tags.map((t) => String(t || '')).filter(Boolean).slice(0, 4) : [],
+            };
+        })(),
     };
 }
 
@@ -264,6 +271,8 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
     const profile = state.profile || {};
     const mascot = iface.mascot || employee.avatar || '✨';
     const interestChips = (profile.interests || []).map((interest) => `<span class="gigabuddy-chip">${escapeHtml(interest)}</span>`).join('');
+    const summary = state.profileSummary || {};
+    const summaryChips = (summary.tags || []).map((tag) => `<span class="gigabuddy-chip">${escapeHtml(tag)}</span>`).join('');
     const hasName = Boolean((profile.name || employee.name || '').trim());
     const displayName = hasName ? (profile.name || employee.name) : 'Профиль ещё не загружен';
     const displayRole = hasName ? (profile.role || employee.role || 'Направление адаптации') : 'Наставник ещё не добавил профиль сотрудника';
@@ -287,9 +296,12 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
             <div class="gigabuddy-demo-context">
                 <span>Профиль новичка</span>
                 ${hasName
-                    ? `<p>${escapeHtml(`${mascot} ${displayName}${profile.department ? ' · ' + profile.department : ''}`)}</p>
+                    ? (summary.headline
+                        ? `<p>${escapeHtml(`${mascot} ${summary.headline}`)}</p>
+                ${summaryChips ? `<div class="gigabuddy-chips">${summaryChips}</div>` : ''}`
+                        : `<p>${escapeHtml(`${mascot} ${displayName}${profile.department ? ' · ' + profile.department : ''}`)}</p>
                 ${profile.experience ? `<p class="gigabuddy-profile-experience">${escapeHtml(profile.experience)}</p>` : ''}
-                ${interestChips ? `<div class="gigabuddy-chips">${interestChips}</div>` : ''}`
+                ${interestChips ? `<div class="gigabuddy-chips">${interestChips}</div>` : ''}`)
                     : `<p class="gigabuddy-profile-empty">Профиль сотрудника ещё не загружен наставником. Он появится, когда наставник добавит файл профиля в папку сотрудника.</p>`}
             </div>
             <div class="gigabuddy-stage-card">
@@ -325,7 +337,7 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
                 <div class="gigabuddy-return-status" data-gigabuddy-return-status aria-live="polite"></div>
             </form>
             <details class="gigabuddy-mentor-events">
-                <summary>События / Telegram позже</summary>
+                <summary>События / Telegram</summary>
                 <ul>${renderEvents(state)}</ul>
             </details>
         </aside>

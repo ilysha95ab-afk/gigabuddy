@@ -492,6 +492,51 @@ def _maybe_trigger_knowledge_rebuild(view: Dict[str, Any]) -> None:
     return
 
 
+def _gigabuddy_novice_descriptor(drive_root: Any, view: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve the novice center-chat descriptor for the CURRENT employee.
+
+    v6.87.4: each named employee gets their own Project
+    (``gigabuddy-novice-<employee_id>``, named after them) so per-employee
+    dialogue history is stored separately. The blank placeholder employee keeps
+    the LEGACY single ``gigabuddy-novice`` project. Fail-soft to the legacy
+    descriptor on any per-employee failure — the seam must never break."""
+    emp_id = str(view.get("activeEmployeeId") or "").strip()
+    if emp_id and emp_id != "novice":
+        profile = view.get("profile") or {}
+        employee = view.get("employee") or {}
+        display_name = str(
+            profile.get("name") or employee.get("name") or emp_id
+        ).strip()
+        try:
+            from ouroboros import gigabuddy_projects
+
+            novice = gigabuddy_projects.ensure_employee_project(
+                drive_root, emp_id, display_name
+            )
+            if novice.get("chat_id"):
+                return novice
+        except Exception as exc:
+            log.warning("GigaBuddy employee project failed, legacy fallback: %s", exc)
+    return ensure_novice_project(drive_root)
+
+
+def _gigabuddy_profile_summary(view: Dict[str, Any]) -> Dict[str, Any]:
+    """Short UI summary for the active employee card: cached sidecar, generated
+    ONCE (first get_state after a profile load) and never on later polls. Empty
+    for the blank placeholder employee. Fail-soft to {}."""
+    emp_id = str(view.get("activeEmployeeId") or "").strip()
+    profile = view.get("profile") or {}
+    if not emp_id or emp_id == "novice" or not str(profile.get("name") or "").strip():
+        return {}
+    try:
+        from ouroboros import gigabuddy_profile
+
+        return gigabuddy_profile.ensure_profile_summary(emp_id, profile)
+    except Exception as exc:
+        log.warning("GigaBuddy profile summary failed: %s", exc)
+        return {}
+
+
 def _handle_gigabuddy_action(request: Request, body: Dict[str, Any]) -> JSONResponse:
     """Handle GigaBuddy state/action commands through the existing settings seam."""
     try:
@@ -506,11 +551,13 @@ def _handle_gigabuddy_action(request: Request, body: Dict[str, Any]) -> JSONResp
         # at the gateway seam (camelCase to match build_gigabuddy_view). This is
         # response-only transport metadata — never persisted into GigaBuddy state.
         view = dict(result.get("view") or {})
-        novice = ensure_novice_project(drive_root)
+        novice = _gigabuddy_novice_descriptor(drive_root, view)
         view["noviceChat"] = {
             "chatId": novice["chat_id"],
             "projectId": novice["project_id"],
         }
+        # v6.87.4: short LLM-built card summary (cached, one generation only).
+        view["profileSummary"] = _gigabuddy_profile_summary(view)
         # #4 Karpathy-wiki: when the mentor's knowledge folder has sources but no
         # fresh built index (status == "building"), fire the ONE-TIME LLM build in
         # the BACKGROUND so this response stays fast. The next get_state poll picks

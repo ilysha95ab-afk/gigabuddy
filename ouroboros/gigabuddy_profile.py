@@ -511,3 +511,165 @@ def knowledge_dir_exists(employee_id: str) -> bool:
         return kdir.is_dir()
     except OSError:
         return False
+
+
+# --- Profile summary (short UI card) -----------------------------------------
+
+_SUMMARY_FILENAME = "profile_summary.json"
+_SUMMARY_MAX_TAGS = 4
+_SUMMARY_TAG_MAX_CHARS = 24
+
+_SUMMARY_PROMPT = """Сожми профиль новичка в короткую карточку для UI наставника.
+
+Верни ТОЛЬКО JSON одним объектом, без пояснений и markdown:
+{"headline": "...", "tags": ["...", "..."]}
+
+Правила:
+- headline: имя, подразделение и 1-2 короткие фразы о роли и сильных сторонах.
+  Образец: «Алиса Смирнова. Блок Люди и Культура. Первая роль в найме; сильна в
+  коммуникации, осваивает внутренние регламенты».
+- tags: 2-4 коротких хэштега (1-3 слова каждый) из интересных фактов анкеты —
+  интересы, ритуалы, особенности. Образец: «командные ритуалы», «котики».
+- Только факты из текста профиля, ничего не выдумывай.
+
+Текст профиля:
+__GB_PROFILE_TEXT__"""
+
+
+def _summary_sidecar_path(employee_id: str) -> pathlib.Path:
+    return employee_dir(employee_id) / _SUMMARY_FILENAME
+
+
+def _fallback_summary(profile: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministic summary when the LLM is unavailable: name + department,
+    no tags. Never raises, never fabricates."""
+    profile = profile if isinstance(profile, dict) else {}
+    name = str(profile.get("name") or "").strip()
+    department = str(profile.get("department") or "").strip()
+    parts = [part for part in (name, department) if part]
+    return {"headline": ". ".join(parts), "tags": []}
+
+
+def _clean_llm_summary(data: Any, profile: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not isinstance(data, dict):
+        return None
+    headline = str(data.get("headline") or "").strip()
+    if not headline:
+        return None
+    tags_raw = data.get("tags")
+    tags: List[str] = []
+    if isinstance(tags_raw, list):
+        for item in tags_raw:
+            tag = str(item or "").strip()[:_SUMMARY_TAG_MAX_CHARS]
+            if tag and tag not in tags:
+                tags.append(tag)
+            if len(tags) >= _SUMMARY_MAX_TAGS:
+                break
+    return {"headline": headline[:400], "tags": tags}
+
+
+def generate_profile_summary(profile: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the short UI summary for one employee profile.
+
+    ONE plain-text LIGHT call — NO ``response_format`` (cloud.ru rejects
+    ``json_object``; known provider-strictness class). The JSON object is pulled
+    out of the reply text with a ``{...}`` regex instead. ANY failure falls back
+    to the deterministic name+department summary. Never raises.
+    """
+    profile = profile if isinstance(profile, dict) else {}
+    text_bits = [
+        str(profile.get(key) or "").strip()
+        for key in ("name", "role", "department", "experience")
+    ]
+    interests = profile.get("interests")
+    if isinstance(interests, list):
+        text_bits.append("Интересы: " + ", ".join(str(i) for i in interests))
+    body = "\n".join(bit for bit in text_bits if bit)
+    if not body:
+        return {"headline": "", "tags": []}
+    prompt_text = body if len(body) <= _LLM_PROFILE_MAX_CHARS else body[:_LLM_PROFILE_MAX_CHARS]
+    try:
+        from dataclasses import replace as _replace
+
+        from ouroboros import model_concurrency
+        from ouroboros.config import get_light_model
+        from ouroboros.llm import LLMClient
+        from ouroboros.provider_models import resolve_credentialed_model
+        from ouroboros.usage_accounting import (
+            UsageScope,
+            current_usage_scope,
+            usage_scope,
+        )
+
+        model = resolve_credentialed_model(get_light_model())
+        use_local = str(os.environ.get("USE_LOCAL_LIGHT", "") or "").lower() in ("true", "1")
+        client = LLMClient()
+        scope = current_usage_scope()
+        if scope is not None:
+            scope = _replace(scope, category="gigabuddy_profile", source="gigabuddy_profile")
+        else:
+            scope = UsageScope(
+                drive_root=None,
+                task_id="gigabuddy_profile",
+                root_task_id="gigabuddy_profile",
+                parent_task_id="",
+                category="gigabuddy_profile",
+                source="gigabuddy_profile",
+            )
+        chat_kwargs = dict(
+            messages=[{
+                "role": "user",
+                "content": _SUMMARY_PROMPT.replace("__GB_PROFILE_TEXT__", prompt_text),
+            }],
+            model=model,
+            tools=None,
+            reasoning_effort="low",
+            max_tokens=1024,
+            use_local=use_local,
+        )
+        with model_concurrency.model_call_slot(model, use_local):
+            with usage_scope(scope):
+                msg, _usage = client.chat(**chat_kwargs)
+        content = str((msg or {}).get("content") or "").strip()
+        if not content:
+            return _fallback_summary(profile)
+        raw = content
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-zA-Z0-9]*\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw).strip()
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            return _fallback_summary(profile)
+        try:
+            data = json.loads(match.group(0))
+        except (ValueError, TypeError):
+            return _fallback_summary(profile)
+        cleaned = _clean_llm_summary(data, profile)
+        return cleaned if cleaned else _fallback_summary(profile)
+    except Exception:
+        log.debug("GigaBuddy profile summary LLM failed; deterministic fallback", exc_info=True)
+        return _fallback_summary(profile)
+
+
+def ensure_profile_summary(employee_id: str, profile: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the cached summary for the employee, generating it ONCE on first
+    use. The cache is a per-employee sidecar (``profile_summary.json`` in the
+    employee folder) so polls never regenerate and restarts keep the summary.
+    Fail-soft: a read/write problem still yields a valid summary shape.
+    """
+    path = _summary_sidecar_path(employee_id)
+    try:
+        if path.is_file():
+            cached = json.loads(path.read_text(encoding="utf-8"))
+            cleaned = _clean_llm_summary(cached, profile) or _fallback_summary(profile)
+            if cleaned.get("headline"):
+                return cleaned
+    except Exception:
+        log.debug("GigaBuddy profile summary cache unreadable; regenerating", exc_info=True)
+    summary = generate_profile_summary(profile)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        log.debug("GigaBuddy profile summary cache write failed", exc_info=True)
+    return summary

@@ -278,8 +278,10 @@ def test_is_novice_project_id_matches_canonical_and_generations():
     assert gigabuddy_state.is_novice_project_id(NOVICE_PROJECT_ID)
     assert gigabuddy_state.is_novice_project_id(f"{NOVICE_PROJECT_ID}-2")
     assert gigabuddy_state.is_novice_project_id(f"{NOVICE_PROJECT_ID}-17")
+    # v6.87.4: per-employee ids (gigabuddy-novice-<employee_slug>) are novice ids too.
+    assert gigabuddy_state.is_novice_project_id(f"{NOVICE_PROJECT_ID}-x")
+    assert gigabuddy_state.is_novice_project_id(f"{NOVICE_PROJECT_ID}-alisa_20260714")
     assert not gigabuddy_state.is_novice_project_id("gigabuddy")
-    assert not gigabuddy_state.is_novice_project_id(f"{NOVICE_PROJECT_ID}-x")
     assert not gigabuddy_state.is_novice_project_id(f"{NOVICE_PROJECT_ID}-")
     assert not gigabuddy_state.is_novice_project_id("")
 

@@ -51,11 +51,9 @@ def _novice_project_id_candidates() -> tuple[str, ...]:
 
 
 def is_novice_project_id(project_id: str) -> bool:
-    """True for the canonical novice id or any deterministic fallback generation.
-
-    Used by the frontend `/clean` interception, which must keep recognising the
-    novice thread after a tombstone-recovery id shift (see ensure_novice_project).
-    """
+    """True for the canonical novice id, a digit fallback generation, or a
+    per-employee id (``gigabuddy-novice-<employee_slug>``, v6.87.4). Used by the
+    persona gate and the frontend `/clean` interception."""
     pid = str(project_id or "").strip()
     if pid == NOVICE_PROJECT_ID:
         return True
@@ -63,7 +61,7 @@ def is_novice_project_id(project_id: str) -> bool:
     if not pid.startswith(prefix):
         return False
     suffix = pid[len(prefix):]
-    return suffix.isdigit()
+    return bool(suffix)
 
 
 STATE_RELATIVE_PATH = pathlib.Path("state") / "gigabuddy" / "state.json"
@@ -643,7 +641,7 @@ def normalize_gigabuddy_state(raw: Any) -> Dict[str, Any]:
     merged_employees = dict(defaults["employees"])
     for eid, eraw in employees.items():
         key = _slug(eid)
-        fallback = merged_employees.get(key) or _default_employee(key, key, "Demo", avatar="✨", theme="neutral", stage="advisor", progress=0, questionnaire_package_id="people-culture-base", tasks=[])
+        fallback = merged_employees.get(key) or _default_employee(key, key, "", avatar="✨", theme="neutral", stage="advisor", progress=0, questionnaire_package_id="people-culture-base", tasks=[])
         merged_employees[key] = _normalize_employee(eraw, fallback)
     state["employees"] = merged_employees
     active = _slug(raw.get("active_employee_id") or defaults["active_employee_id"], defaults["active_employee_id"])

@@ -466,14 +466,13 @@ def test_gigabuddy_knowledge_base_status_indicator():
     assert "knowledgeBase" in gb_state
     assert "def knowledge_status" in gk
     assert 'return {"status": "empty"' in gk or "\"status\": \"empty\"" in gk
-    # The native LLM builder + persistence exist; the hot/status path is LLM-free.
+    # v6.87.3: simplified keyword retrieval — no LLM builder, no .wiki_index/
+    # persistence; the index builds on demand + memory cache.
     assert "def rebuild_knowledge" in gk
-    assert "def _llm_build_chunks" in gk
-    assert "_WIKI_INDEX_DIRNAME" in gk  # derived .wiki_index/ storage
-    assert "LLMClient" in gk  # LLM via the shared client, not raw HTTP
-    # The gateway triggers the one-time background rebuild when status=building.
+    assert "_WIKI_INDEX_DIRNAME" not in gk
+    assert "_llm_build_chunks" not in gk
+    # The gateway rebuild trigger is kept as a no-op seam (no background daemon).
     assert "_maybe_trigger_knowledge_rebuild" in settings
-    assert "rebuild_knowledge" in settings
     # No frozen contract churn for the knowledge-base status data.
     assert "knowledgebase" not in contracts.lower()
     assert "gigabuddy" not in contracts.lower()
