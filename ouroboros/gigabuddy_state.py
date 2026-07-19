@@ -15,6 +15,7 @@ import re
 import time
 from typing import Any, Callable, Dict
 
+from ouroboros import gigabuddy_evolution as _evo
 from ouroboros.utils import read_json_dict, update_json_locked, utc_now_iso
 
 log = logging.getLogger(__name__)
@@ -90,6 +91,9 @@ ALLOWED_OPS = frozenset({
     "load_profile",
     "set_track",
     "record_progress",
+    "propose_evolution",
+    "approve_evolution",
+    "revert_evolution",
 })
 
 
@@ -359,6 +363,7 @@ def _default_employee(
         "profile": _default_profile(name, role, department, experience, list(interests or [])),
         "interface": _default_interface(theme, accent, avatar, tone),
         "track": _default_track(stage_id),
+        "evolution_proposals": [],
         "internal_signals": {
             "support_need": "internal_only",
             "confidence_risk": "hidden_from_novice",
@@ -392,6 +397,7 @@ def _blank_employee() -> Dict[str, Any]:
         "profile": _default_profile("", "", "", "", []),
         "interface": _default_interface("neutral", DEFAULT_ACCENT, "✨", "friendly"),
         "track": [],
+        "evolution_proposals": [],
         "internal_signals": {},
     }
 
@@ -585,6 +591,13 @@ def _normalize_employee(raw: Any, fallback: Dict[str, Any]) -> Dict[str, Any]:
             "at": _clip(item.get("at"), 80) or utc_now_iso(),
         })
     emp["rollback_history"] = rollback_history[-MAX_ROLLBACK_HISTORY:]
+    # Reversible self-evolution proposal ledger. Without this the allow-list
+    # projection would silently drop the field on every round-trip.
+    emp["evolution_proposals"] = _evo.normalize_evolution_proposals(
+        raw.get("evolution_proposals")
+        if isinstance(raw.get("evolution_proposals"), list)
+        else emp.get("evolution_proposals", [])
+    )
     return emp
 
 
@@ -1007,6 +1020,107 @@ def _op_demo_accelerate(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[
     return _transition(state, target, _clip(payload.get("reason"), MAX_NOTE_CHARS) or "Быстрый виток демо", "demo_accelerate")
 
 
+# --- Reversible self-evolution ops (soft layer only) -----------------------
+# The reducer VALIDATES a DECLARED depth (chosen by the LLM/persona/mentor
+# surface) — it never text-classifies a request into a depth (BIBLE P5). The
+# soft-layer validators are passed into the pure gigabuddy_evolution helpers as
+# a callable bundle to keep that module import-cycle free.
+_EVOLUTION_VALIDATORS: Dict[str, Callable[..., Any]] = {
+    "theme": _theme,
+    "accent": _accent,
+    "mascot": _mascot,
+    "tone": _tone,
+    "layout": _layout,
+    "stage": _stage,
+}
+
+
+def _find_active_proposal(emp: Dict[str, Any], proposal_id: str) -> Dict[str, Any]:
+    """Look up a proposal ONLY within the active employee (cross-employee
+    isolation): a proposal from Alice must not be applicable while Leonid is
+    active."""
+    pid = _slug(proposal_id, "")
+    for proposal in emp.get("evolution_proposals", []):
+        if proposal.get("id") == pid:
+            return proposal
+    raise GigaBuddyStateError("No such evolution proposal for the active employee.")
+
+
+def _op_propose_evolution(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    emp = _active_employee(state)
+    try:
+        depth = _evo._depth(payload.get("depth"))
+        inner = {k: v for k, v in payload.items() if k not in {"depth", "source"}}
+        validated = _evo.validate_evolution_payload(depth, inner, _EVOLUTION_VALIDATORS)
+    except _evo.EvolutionError as exc:
+        raise GigaBuddyStateError(str(exc)) from exc
+    proposals = list(emp.get("evolution_proposals", []))
+    proposal = {
+        "id": _now_id("evo"),
+        "depth": depth,
+        "payload": validated,
+        "source": _evo._source(payload.get("source")),
+        "status": "proposed",
+        "git_tag_hint": "",
+        "baseline_tag": "",
+        "created_at": utc_now_iso(),
+    }
+    proposals.append(proposal)
+    emp["evolution_proposals"] = proposals[-_evo.MAX_EVOLUTION_PROPOSALS:]
+    _append_event(state, _event("propose_evolution", emp["id"], f"Предложена эволюция ({depth})", depth=depth))
+    return {"state": state, "audit": {"op": "propose_evolution", "employee_id": emp["id"], "proposal_id": proposal["id"], "depth": depth, "result": "success"}}
+
+
+def _op_approve_evolution(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    emp = _active_employee(state)
+    proposal = _find_active_proposal(emp, payload.get("proposal_id"))
+    if proposal.get("status") != "proposed":
+        raise GigaBuddyStateError(f"Evolution proposal is already {proposal.get('status')}, cannot approve again.")
+    depth = proposal["depth"]
+    # ordinal for the owner-facing git-tag hint (position among this employee's proposals)
+    ordinal = len(emp.get("evolution_proposals", []))
+    proposal["git_tag_hint"] = _evo.git_tag_hint(emp["id"], ordinal)
+    proposal["baseline_tag"] = "v6.82.0"
+
+    if depth == "ui":
+        # ui is proposal-only: approving records the intent + owner git-command
+        # hint. It NEVER mutates state and never claims an applied code change —
+        # the actual UI edit is an owner-landed, reviewed git change.
+        proposal["status"] = "approved"
+        _append_event(state, _event("approve_evolution", emp["id"], "Одобрено UI-предложение (правит наставник/владелец)", depth=depth))
+        return {"state": state, "audit": {"op": "approve_evolution", "employee_id": emp["id"], "proposal_id": proposal["id"], "depth": depth, "applied": False, "result": "approved"}}
+
+    # interface / role_tempo are APPLYABLE: snapshot the exact effective state
+    # BEFORE mutating so revert restores it precisely (never _op_rollback).
+    proposal["pre_image"] = _evo.build_pre_image(emp)
+    if depth == "interface":
+        emp["interface"] = _normalize_interface(proposal.get("payload") or {}, emp.get("interface") or {})
+    else:  # role_tempo
+        target = _stage(proposal.get("payload", {}).get("stage"), NEXT_STAGE[_stage(emp.get("stage"))])
+        _transition(state, target, f"evolution:{proposal['id']}", "approve_evolution")
+        emp = _active_employee(state)
+    proposal["status"] = "applied"
+    _append_event(state, _event("approve_evolution", emp["id"], f"Применена эволюция ({depth})", depth=depth))
+    return {"state": state, "audit": {"op": "approve_evolution", "employee_id": emp["id"], "proposal_id": proposal["id"], "depth": depth, "applied": True, "result": "applied"}}
+
+
+def _op_revert_evolution(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    emp = _active_employee(state)
+    proposal = _find_active_proposal(emp, payload.get("proposal_id"))
+    if proposal.get("status") != "applied":
+        raise GigaBuddyStateError(f"Only an applied evolution can be reverted (this one is {proposal.get('status')}).")
+    pre_image = proposal.get("pre_image")
+    if not isinstance(pre_image, dict):
+        raise GigaBuddyStateError("This evolution has no reversible snapshot to restore.")
+    try:
+        _evo.apply_pre_image(emp, pre_image)
+    except _evo.EvolutionError as exc:
+        raise GigaBuddyStateError(str(exc)) from exc
+    proposal["status"] = "reverted"
+    _append_event(state, _event("revert_evolution", emp["id"], f"Откат эволюции ({proposal['depth']})", depth=proposal["depth"]))
+    return {"state": state, "audit": {"op": "revert_evolution", "employee_id": emp["id"], "proposal_id": proposal["id"], "depth": proposal["depth"], "result": "reverted"}}
+
+
 _OPS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]] = {
     "get_state": _op_get_state,
     "select_employee": _op_select_employee,
@@ -1018,6 +1132,9 @@ _OPS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]]] = {
     "load_profile": _op_load_profile,
     "set_track": _op_set_track,
     "record_progress": _op_record_progress,
+    "propose_evolution": _op_propose_evolution,
+    "approve_evolution": _op_approve_evolution,
+    "revert_evolution": _op_revert_evolution,
 }
 
 _ALLOWED_PAYLOAD_KEYS = {
@@ -1031,6 +1148,12 @@ _ALLOWED_PAYLOAD_KEYS = {
     "load_profile": frozenset({"employee_id"}),
     "set_track": frozenset({"stages"}),
     "record_progress": frozenset({"stage_id", "status"}),
+    # Evolution ops: propose carries the depth + bounded soft-layer payload
+    # fields (validated by gigabuddy_evolution against the allow-listed
+    # validators); approve/revert carry only a proposal id.
+    "propose_evolution": frozenset({"depth", "source", "theme", "accent_color", "mascot", "tone", "layout", "stage", "label", "note"}),
+    "approve_evolution": frozenset({"proposal_id"}),
+    "revert_evolution": frozenset({"proposal_id"}),
 }
 
 

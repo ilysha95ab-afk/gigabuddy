@@ -171,6 +171,14 @@ def test_gigabuddy_view_still_hides_diagnostics_with_new_fields(tmp_path):
     state["employees"][BLANK_EMPLOYEE_ID]["internal_signals"] = {"confidence_risk": "high anxiety marker"}
     state["employees"][BLANK_EMPLOYEE_ID]["mentor_notes"] = ["private mentor note"]
     state["employees"][BLANK_EMPLOYEE_ID]["rollback_history"] = [{"version_id": "v1", "reason": "secret rollback reason"}]
+    # A stored evolution proposal must NEVER reach the novice-safe view. The
+    # view is an allow-list by omission today; the sentinel pins that so a
+    # future spread refactor cannot silently leak proposals to the novice.
+    state["employees"][BLANK_EMPLOYEE_ID]["evolution_proposals"] = [
+        {"id": "evo-x", "depth": "interface", "payload": {"theme": "soft-cat"},
+         "status": "applied", "pre_image": {"stage": "advisor"},
+         "git_tag_hint": "GIGA_EVO_SENTINEL_TAG"}
+    ]
     view = build_gigabuddy_view(state)
     dumped = json.dumps(view, ensure_ascii=False)
     assert "internal_signals" not in dumped
@@ -178,6 +186,9 @@ def test_gigabuddy_view_still_hides_diagnostics_with_new_fields(tmp_path):
     assert "rollback_history" not in dumped
     assert "private mentor note" not in dumped
     assert "anxiety" not in dumped
+    assert "evolution_proposals" not in dumped
+    assert "GIGA_EVO_SENTINEL_TAG" not in dumped
+    assert "pre_image" not in dumped
 
 
 def test_gigabuddy_rollback_records_history_internally(tmp_path):
@@ -363,3 +374,149 @@ def test_b3_profile_file_access_is_confined(tmp_path):
     from ouroboros import gigabuddy_profile
 
     assert gigabuddy_profile.load_employee_profile("../../etc") is None
+
+
+# --- Reversible self-evolution (v6.83.0) -----------------------------------
+
+
+def _propose_evo(tmp_path, **payload):
+    r = apply_gigabuddy_action(tmp_path, "propose_evolution", payload)
+    return r["audit"]["proposal_id"], r
+
+
+def _evo_emp(state):
+    return state["employees"][state["active_employee_id"]]
+
+
+def test_evolution_propose_applies_nothing(tmp_path):
+    _load_alice(tmp_path)
+    before = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]["interface"]["theme"]
+    target = "ocean-calm" if before != "ocean-calm" else "warm-sunrise"
+    pid, r = _propose_evo(tmp_path, depth="interface", theme=target, source="novice_request")
+    emp = _evo_emp(r["state"])
+    assert emp["interface"]["theme"] == before  # unchanged
+    assert emp["evolution_proposals"][-1]["status"] == "proposed"
+    assert emp["evolution_proposals"][-1]["id"] == pid
+
+
+def test_evolution_approve_interface_applies_only_validated_fields(tmp_path):
+    _load_alice(tmp_path)
+    base = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]["interface"]
+    target = "ocean-calm" if base["theme"] != "ocean-calm" else "warm-sunrise"
+    pid, _ = _propose_evo(tmp_path, depth="interface", theme=target, mascot="🐬", tone="playful")
+    r = apply_gigabuddy_action(tmp_path, "approve_evolution", {"proposal_id": pid})
+    emp = _evo_emp(r["state"])
+    assert emp["interface"]["theme"] == target
+    assert emp["interface"]["mascot"] == "🐬"
+    assert emp["interface"]["tone"] == "playful"
+    prop = emp["evolution_proposals"][-1]
+    assert prop["status"] == "applied"
+    assert "pre_image" in prop
+    assert prop["git_tag_hint"].startswith("giga-evo-")
+
+
+def test_evolution_approve_interface_rejects_arbitrary_accent(tmp_path):
+    # A bad accent falls back to the design-system default; a proposal can never
+    # inject arbitrary CSS.
+    _load_alice(tmp_path)
+    pid, _ = _propose_evo(tmp_path, depth="interface", accent_color="url(evil)")
+    r = apply_gigabuddy_action(tmp_path, "approve_evolution", {"proposal_id": pid})
+    emp = _evo_emp(r["state"])
+    from ouroboros.gigabuddy_state import DEFAULT_ACCENT, _HEX_ACCENT_RE
+    assert _HEX_ACCENT_RE.fullmatch(emp["interface"]["accent_color"])
+    assert emp["interface"]["accent_color"] == DEFAULT_ACCENT
+
+
+def test_evolution_revert_interface_restores_all_fields(tmp_path):
+    _load_alice(tmp_path)
+    base = dict(apply_gigabuddy_action(tmp_path, "get_state", {})["view"]["interface"])
+    target = "ocean-calm" if base["theme"] != "ocean-calm" else "warm-sunrise"
+    pid, _ = _propose_evo(tmp_path, depth="interface", theme=target, mascot="🐬", tone="playful")
+    apply_gigabuddy_action(tmp_path, "approve_evolution", {"proposal_id": pid})
+    r = apply_gigabuddy_action(tmp_path, "revert_evolution", {"proposal_id": pid})
+    iface = _evo_emp(r["state"])["interface"]
+    assert iface["theme"] == base["theme"]
+    assert iface["mascot"] == base["mascot"]
+    assert iface["tone"] == base["tone"]
+    assert iface["layout"] == base["layout"]
+    # base is the VIEW projection (accentColor); state uses accent_color.
+    assert iface["accent_color"] == base["accentColor"]
+    assert _evo_emp(r["state"])["evolution_proposals"][-1]["status"] == "reverted"
+
+
+def test_evolution_role_tempo_approve_and_revert_restore_effective_state(tmp_path):
+    _load_alice(tmp_path)
+    pre = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]
+    pre_stage = pre["stage"]["id"]
+    pre_pct = pre["progressPct"]
+    pre_ver = _evo_emp(load_gigabuddy_state(tmp_path))["active_behavior_version_id"]
+    pid, _ = _propose_evo(tmp_path, depth="role_tempo")
+    r = apply_gigabuddy_action(tmp_path, "approve_evolution", {"proposal_id": pid})
+    adv = build_gigabuddy_view(r["state"])
+    assert adv["stage"]["id"] != pre_stage  # advanced
+    # Revert restores stage AND behavior version AND derived progress — NOT v1.
+    r = apply_gigabuddy_action(tmp_path, "revert_evolution", {"proposal_id": pid})
+    emp = _evo_emp(r["state"])
+    assert emp["stage"] == pre_stage
+    assert emp["active_behavior_version_id"] == pre_ver
+    assert build_gigabuddy_view(r["state"])["progressPct"] == pre_pct
+
+
+def test_evolution_ui_is_proposal_only(tmp_path):
+    _load_alice(tmp_path)
+    pid, r = _propose_evo(tmp_path, depth="ui", label="иконка котиков")
+    before = json.dumps(build_gigabuddy_view(r["state"]), ensure_ascii=False)
+    r = apply_gigabuddy_action(tmp_path, "approve_evolution", {"proposal_id": pid})
+    prop = _evo_emp(r["state"])["evolution_proposals"][-1]
+    assert prop["status"] == "approved"
+    assert "pre_image" not in prop
+    assert r["audit"]["applied"] is False
+    assert prop["git_tag_hint"].startswith("giga-evo-")
+    assert json.dumps(build_gigabuddy_view(r["state"]), ensure_ascii=False) == before
+    # A ui proposal is never "applied", so it cannot be reverted.
+    with pytest.raises(GigaBuddyStateError):
+        apply_gigabuddy_action(tmp_path, "revert_evolution", {"proposal_id": pid})
+
+
+def test_evolution_unknown_depth_rejected(tmp_path):
+    _load_alice(tmp_path)
+    with pytest.raises(GigaBuddyStateError):
+        apply_gigabuddy_action(tmp_path, "propose_evolution", {"depth": "core"})
+
+
+def test_evolution_double_approve_and_revert_before_apply_raise(tmp_path):
+    _load_alice(tmp_path)
+    pid, _ = _propose_evo(tmp_path, depth="interface", theme="ocean-calm")
+    with pytest.raises(GigaBuddyStateError):
+        apply_gigabuddy_action(tmp_path, "revert_evolution", {"proposal_id": pid})
+    apply_gigabuddy_action(tmp_path, "approve_evolution", {"proposal_id": pid})
+    with pytest.raises(GigaBuddyStateError):
+        apply_gigabuddy_action(tmp_path, "approve_evolution", {"proposal_id": pid})
+
+
+def test_evolution_proposals_are_active_employee_scoped(tmp_path):
+    _load_alice(tmp_path)
+    pid, _ = _propose_evo(tmp_path, depth="interface", theme="ocean-calm")
+    apply_gigabuddy_action(tmp_path, "load_profile", {"employee_id": "leonid-demo"})
+    with pytest.raises(GigaBuddyStateError):
+        apply_gigabuddy_action(tmp_path, "approve_evolution", {"proposal_id": pid})
+
+
+def test_evolution_proposals_survive_normalize_round_trip(tmp_path):
+    _load_alice(tmp_path)
+    pid, _ = _propose_evo(tmp_path, depth="interface", theme="ocean-calm")
+    apply_gigabuddy_action(tmp_path, "approve_evolution", {"proposal_id": pid})
+    reloaded = load_gigabuddy_state(tmp_path)
+    props = _evo_emp(reloaded)["evolution_proposals"]
+    assert any(p["id"] == pid and p["status"] == "applied" for p in props)
+    assert len(props) <= 24
+
+
+def test_evolution_ops_round_trip_through_apply_without_raising(tmp_path):
+    # Each new op must be present in ALL THREE registries (ALLOWED_OPS, _OPS,
+    # _ALLOWED_PAYLOAD_KEYS) — a missing entry hard-raises.
+    _load_alice(tmp_path)
+    r = apply_gigabuddy_action(tmp_path, "propose_evolution", {"depth": "interface", "theme": "ocean-calm"})
+    pid = r["audit"]["proposal_id"]
+    apply_gigabuddy_action(tmp_path, "approve_evolution", {"proposal_id": pid})
+    apply_gigabuddy_action(tmp_path, "revert_evolution", {"proposal_id": pid})

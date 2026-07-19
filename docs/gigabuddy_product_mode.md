@@ -439,6 +439,85 @@ double gate (product off / non-novice project → unchanged) and novice-safe
 boundaries do not regress; Panic + PIN-return stay visible; no frozen contracts
 (`contracts.py` / `StateResponse` / routes) or `BIBLE.md` touched.
 
+## Reversible self-evolution (v6.83.0)
+
+GigaBuddy can evolve itself in a **mentor-approved, depth-classified, reversible**
+way, staying strictly inside the plan-A **soft layer** — never the immune core.
+
+### The soft layer (what evolution may touch)
+
+An evolution proposal carries a DECLARED `depth` enum (the reducer never
+text-classifies a request — BIBLE P5):
+
+- **`interface`** — per-employee `interface` block: `theme`, `accent_color`,
+  `mascot`, `tone`, `layout`. Every field is validated by the EXISTING
+  design-system validators (`_theme`/`_accent`/`_mascot`/`_tone`/`_layout`), so a
+  bad accent falls back to `DEFAULT_ACCENT` and a proposal can NEVER inject
+  arbitrary CSS. Applied on approve.
+- **`role_tempo`** — advance the stage Советчик→Помощник→Партнёр (reusing the
+  `_transition` machinery, which mints a `behavior_version` and syncs the track).
+  Applied on approve.
+- **`ui`** — a proposal-only NOTE (e.g. "change the mascot icon under cats").
+  It records intent + a `git_tag_hint` but changes NO state; the real UI edit
+  lands as a reviewed code commit. Approving a `ui` proposal never mutates the
+  view, so it cannot be reverted.
+
+Structurally unreachable at ANY depth: `BIBLE.md`, `prompts/SAFETY.md`, Panic,
+novice-safety (`internal_signals` / mentor notes / rollback history never leak),
+PIN-return, and frozen `contracts.py` / routes.
+
+### Trigger → approval → apply
+
+Input is a novice request OR GigaBuddy's own decision. The mentor approves the
+chosen depth, then a narrow reviewed `/evolve` lands the change. In state terms:
+
+1. `propose_evolution {depth, ...soft fields}` — records a `proposed` entry in
+   the active employee's `evolution_proposals` ledger. **Applies nothing.**
+2. `approve_evolution {proposal_id}` — applies the soft-layer change
+   (`interface`/`role_tempo`) or marks a `ui` proposal `approved`. Idempotent:
+   double-approve raises. Proposals are ACTIVE-EMPLOYEE-scoped (Alice's proposal
+   cannot be approved while Leonid is active).
+3. `revert_evolution {proposal_id}` — restores from the stored `pre_image`.
+
+### Reversibility — two complementary layers
+
+- **In-state `pre_image`.** For `interface`/`role_tempo`, approve captures a full
+  pre-image (the WHOLE interface block + `stage` + `active_behavior_version_id` +
+  `track`) so revert restores the EXACT effective state — including derived
+  `progressPct` (which `build_gigabuddy_view` computes from the track) — not just
+  a partial `stage`+`theme` or a bare `v1`.
+- **Git tags.** Each approved step carries a `git_tag_hint`
+  (`giga-evo-<employee_id>-<n>`). The owner lands one commit + annotated tag per
+  step, so returning to «raw GigaBuddy» is a tag checkout (baseline `v6.82.0`).
+  Multiple novices × stages = a commit/tag sequence — git is the time machine of
+  evolutions, not a JSON blob.
+
+### Implementation shape (form Б)
+
+- `ouroboros/gigabuddy_evolution.py` — a PURE helper module (build/apply/revert
+  pre-image, normalize proposals). It takes the validators as CALLABLES, so there
+  is no back-import into `gigabuddy_state` (no import cycle).
+- `ouroboros/gigabuddy_state.py` — three ops (`propose_evolution`,
+  `approve_evolution`, `revert_evolution`) registered in ALL THREE registries
+  (`ALLOWED_OPS`, `_OPS`, `_ALLOWED_PAYLOAD_KEYS`); `evolution_proposals` seeded
+  in both constructors and preserved by `_normalize_employee`.
+- The novice-safe `build_gigabuddy_view` NEVER exposes `evolution_proposals`,
+  `pre_image`, or `git_tag_hint` (pinned by an extended sentinel test).
+
+### Immune gate honesty
+
+The evolution is REAL and reviewed: triad + scope review run through `LLMClient`
+on cloud.ru. The Claude-SDK ADVISORY pre-review auto-bypasses when
+`ANTHROPIC_API_KEY` is unset (non-blocking, expected) — but triad + scope are
+genuine. Under the owner-manual-git operating mode, the reviewed commit itself is
+landed by the owner (git by hand), not autonomously.
+
+### Telegram
+
+Telegram approve/reject is the FINAL transport layer, added after the protocol
+works — the `telegram-bridge` hub skill has its own tri-model review gate and is
+never blind-activated.
+
 ## Next implementation increment
 
 1. Add a proper mentor/admin surface for stage approval, task injection, profile switching, behavior rollback, and demo acceleration (Telegram first; a clearly separated admin panel is acceptable for filming).
