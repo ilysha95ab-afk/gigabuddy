@@ -1354,6 +1354,20 @@ def _capture_context_core(
             dynamic_parts.append(persona)
     except Exception:
         log.debug("Failed to build GigaBuddy persona section", exc_info=True)
+    # Mentor-side evolution-approval context: the MIRROR of the novice persona.
+    # In product mode, in a NON-novice thread (the mentor/owner works from ordinary
+    # Ouroboros switched to GigaBuddy), surface any pending evolution proposals and
+    # how to act on the mentor's да/нет reply via the gigabuddy_action tool. Empty
+    # (no section) when nothing is pending, so the mentor thread is untouched in the
+    # common case. Never fires inside the novice thread (which gets the persona).
+    try:
+        from ouroboros.gigabuddy_mentor import gigabuddy_mentor_section
+
+        mentor = gigabuddy_mentor_section(task, env.drive_root)
+        if mentor:
+            dynamic_parts.append(mentor)
+    except Exception:
+        log.debug("Failed to build GigaBuddy mentor section", exc_info=True)
     if health_section:
         dynamic_parts.append(health_section)
     dynamic_parts.extend(build_memory_sections(memory, partition="volatile"))

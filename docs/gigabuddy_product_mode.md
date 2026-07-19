@@ -525,11 +525,39 @@ on cloud.ru. The Claude-SDK ADVISORY pre-review auto-bypasses when
 genuine. Under the owner-manual-git operating mode, the reviewed commit itself is
 landed by the owner (git by hand), not autonomously.
 
-### Telegram
+### Mentor approval over chat / Telegram (v6.84.0)
 
-Telegram approve/reject is the FINAL transport layer, added after the protocol
-works — the `telegram-bridge` hub skill has its own tri-model review gate and is
-never blind-activated.
+The evolution ops are transport-neutral; the mentor approves by CHATTING with the
+agent (mirrored over the `telegram-bridge` poller). Two pieces close that loop
+WITHOUT any new bridge code or frozen route:
+
+- **`gigabuddy_action(op, payload)` tool** (`ouroboros/tools/gigabuddy.py`) — the
+  agent's first-class control for the evolution-approval loop, scoped to
+  `get_state` / `propose_evolution` / `approve_evolution` / `revert_evolution`.
+  It is product-mode-gated and drives the SAME validated `apply_gigabuddy_action`
+  write path the settings seam uses (the reducer still owns every payload
+  validator, cross-employee isolation, novice-safe projection, and bounded
+  history). Until now that write path was reachable only through the owner-audited
+  HTTP settings seam, so a chat turn could not act on «да».
+- **Mentor-side context section** (`ouroboros/gigabuddy_mentor.py`, a sibling of
+  `gigabuddy_profile`/`gigabuddy_knowledge` for P7) — the MIRROR of the novice
+  persona. It fires ONLY in a NON-novice thread (product mode ON, the mentor works
+  from ordinary Ouroboros switched to GigaBuddy) and ONLY when proposals are
+  pending: it lists each proposal and tells the agent to surface it to the mentor
+  and act on the да/нет reply via `gigabuddy_action`. It is empty inside the novice
+  thread and with product mode off (pinned by tests), so the newcomer NEVER sees
+  evolution chrome.
+
+The transport is already fully wired: the notification is an ordinary chat message
+(the bridge mirrors `chat.outbound` → Telegram), and the mentor's reply returns via
+the bridge poller's `_inject`. There is deliberately no web «approve/reject» button
+— the mentor has no separate UI; they use ordinary Ouroboros/Telegram. The
+`telegram-bridge` hub skill keeps its own tri-model review gate and is enabled by
+the owner, never blind-activated.
+
+> Packaged-build note: the new tool auto-discovers in source-mode runtimes; its
+> `_FROZEN_TOOL_MODULES` registration for frozen/packaged builds is a deferred
+> protected-core follow-up (needs pro mode + review).
 
 ## Next implementation increment
 
