@@ -68,6 +68,19 @@ thread-routing**, not a new chat store:
   registers a `gigabuddy-novice` project through `projects_registry.create_project`
   (the single lifecycle/reservation SSOT). It is a registry bridge, never a
   reducer mutation, and fails soft to a zero descriptor.
+- **Tombstone recovery (v6.83.1):** if the owner DELETES the novice thread from
+  Projects, its id becomes permanently reserved (`tombstoned`) — the registry
+  never resurrects an id, by design. `ensure_novice_project` therefore walks a
+  bounded, DETERMINISTIC fallback id sequence (`gigabuddy-novice`,
+  `gigabuddy-novice-2`, …, up to `NOVICE_PROJECT_MAX_GENERATIONS`) and returns
+  the first USABLE id — already ACTIVE (idempotent) or free to reserve. A single
+  owner-delete advances the suffix by exactly one, and the recovered id is stable
+  across restarts, so the thread keeps a durable partitioned chat_id instead of
+  being stranded on the empty-descriptor placeholder. The shared
+  `is_novice_project_id(project_id)` predicate (and the frontend
+  `web/modules/chat.js::isNoviceThread`) match any recovery generation so `/clean`
+  keeps working after the shift. Only when the whole bounded window is exhausted
+  does the honest zero descriptor (placeholder) remain.
 - `ouroboros/gateway/state.py::api_state` calls it eagerly when product mode is
   active, BEFORE emitting `project_chat_ids`, so the novice chat_id is a
   REGISTERED project chat id on the very first `/api/state` poll (the durable

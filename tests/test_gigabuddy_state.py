@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from ouroboros import projects_registry
+from ouroboros import gigabuddy_state, projects_registry
 from ouroboros.gigabuddy_state import (
     BLANK_EMPLOYEE_ID,
     GigaBuddyStateError,
@@ -239,13 +239,49 @@ def test_ensure_novice_project_is_idempotent(tmp_path):
     assert len(entries) == 1
 
 
-def test_ensure_novice_project_fail_soft_on_non_active_reservation(tmp_path):
-    # A tombstoned/deleting reservation makes create_project raise; the helper
-    # must fail soft to a zero descriptor rather than surface a stale live id.
+def test_ensure_novice_project_recovers_from_tombstoned_canonical_id(tmp_path):
+    # If the owner deletes the novice thread, the canonical id is permanently
+    # reserved (tombstoned) and create_project raises for it. The helper must NOT
+    # strand the newcomer chat on an empty descriptor — it walks a deterministic
+    # fallback suffix and returns the first usable id (gigabuddy-novice-2).
     projects_registry.create_project(tmp_path, NOVICE_PROJECT_ID, name="Новичок")
     projects_registry.begin_project_deletion(tmp_path, NOVICE_PROJECT_ID)
     desc = ensure_novice_project(tmp_path)
+    assert desc["project_id"] == f"{NOVICE_PROJECT_ID}-2"
+    assert desc["chat_id"] > 1
+    # The recovered id must be a REGISTERED (routable) project chat id.
+    assert desc["chat_id"] in projects_registry.reserved_project_chat_ids(tmp_path)
+
+
+def test_ensure_novice_project_recovery_is_stable_across_calls(tmp_path):
+    # A single owner-delete advances the suffix by exactly one and the recovered
+    # id is stable across restarts (idempotent create_project for the ACTIVE id).
+    projects_registry.create_project(tmp_path, NOVICE_PROJECT_ID, name="Новичок")
+    projects_registry.begin_project_deletion(tmp_path, NOVICE_PROJECT_ID)
+    first = ensure_novice_project(tmp_path)
+    second = ensure_novice_project(tmp_path)
+    assert first == second
+    assert first["project_id"] == f"{NOVICE_PROJECT_ID}-2"
+
+
+def test_ensure_novice_project_fail_soft_when_all_generations_exhausted(tmp_path):
+    # Pathological case: every candidate id tombstoned -> honest zero descriptor
+    # (the placeholder is correct here). Reserve+delete the whole window.
+    for candidate in gigabuddy_state._novice_project_id_candidates():
+        projects_registry.create_project(tmp_path, candidate, name="Новичок")
+        projects_registry.begin_project_deletion(tmp_path, candidate)
+    desc = ensure_novice_project(tmp_path)
     assert desc == {"chat_id": 0, "project_id": ""}
+
+
+def test_is_novice_project_id_matches_canonical_and_generations():
+    assert gigabuddy_state.is_novice_project_id(NOVICE_PROJECT_ID)
+    assert gigabuddy_state.is_novice_project_id(f"{NOVICE_PROJECT_ID}-2")
+    assert gigabuddy_state.is_novice_project_id(f"{NOVICE_PROJECT_ID}-17")
+    assert not gigabuddy_state.is_novice_project_id("gigabuddy")
+    assert not gigabuddy_state.is_novice_project_id(f"{NOVICE_PROJECT_ID}-x")
+    assert not gigabuddy_state.is_novice_project_id(f"{NOVICE_PROJECT_ID}-")
+    assert not gigabuddy_state.is_novice_project_id("")
 
 
 def test_ensure_novice_project_is_not_a_reducer_mutation(tmp_path):

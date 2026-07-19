@@ -2601,7 +2601,12 @@ export function createChatInstance({
     // NOTE: server chat.jsonl is left intact (audit trail), so a full reload
     // re-syncs history — this is a per-session visual clear by design.
     function isNoviceThread() {
-        return projectId === GIGABUDDY_NOVICE_PROJECT_ID;
+        // Match the canonical novice id OR any deterministic tombstone-recovery
+        // generation (gigabuddy-novice-2, …) — mirrors gigabuddy_state.is_novice_project_id
+        // so `/clean` keeps working after the owner deletes and the id shifts.
+        if (projectId === GIGABUDDY_NOVICE_PROJECT_ID) return true;
+        const prefix = `${GIGABUDDY_NOVICE_PROJECT_ID}-`;
+        return projectId.startsWith(prefix) && /^\d+$/.test(projectId.slice(prefix.length));
     }
     function clearNoviceTranscript() {
         // Drop every real bubble but keep the typing indicator node.

@@ -28,6 +28,44 @@ SCHEMA_VERSION = 1
 # (BIBLE P1) — NOT memory/privacy isolation; unified memory/identity stays intact.
 NOVICE_PROJECT_ID = "gigabuddy-novice"
 NOVICE_PROJECT_NAME = "Новичок"
+# Tombstone recovery window: if the owner deletes the novice thread, its id is
+# permanently reserved and ensure_novice_project walks these deterministic
+# fallback ids (gigabuddy-novice, gigabuddy-novice-2, …-N) to the first usable
+# one. Bounded so a pathological delete-loop cannot spin forever.
+NOVICE_PROJECT_MAX_GENERATIONS = 20
+
+
+def _novice_project_id_candidates() -> tuple[str, ...]:
+    """Deterministic id sequence: canonical id, then suffixed generations.
+
+    A given owner-delete advances the suffix by exactly one and the chosen id is
+    stable across restarts (create_project is idempotent for an ACTIVE id), so the
+    novice thread keeps a durable partitioned chat_id.
+    """
+    ids = [NOVICE_PROJECT_ID]
+    ids.extend(
+        f"{NOVICE_PROJECT_ID}-{gen}"
+        for gen in range(2, NOVICE_PROJECT_MAX_GENERATIONS + 1)
+    )
+    return tuple(ids)
+
+
+def is_novice_project_id(project_id: str) -> bool:
+    """True for the canonical novice id or any deterministic fallback generation.
+
+    Used by the frontend `/clean` interception, which must keep recognising the
+    novice thread after a tombstone-recovery id shift (see ensure_novice_project).
+    """
+    pid = str(project_id or "").strip()
+    if pid == NOVICE_PROJECT_ID:
+        return True
+    prefix = f"{NOVICE_PROJECT_ID}-"
+    if not pid.startswith(prefix):
+        return False
+    suffix = pid[len(prefix):]
+    return suffix.isdigit()
+
+
 STATE_RELATIVE_PATH = pathlib.Path("state") / "gigabuddy" / "state.json"
 STAGES = ("advisor", "assistant", "partner")
 STAGE_LABELS = {
@@ -1204,30 +1242,54 @@ def ensure_novice_project(drive_root: pathlib.Path | str) -> Dict[str, Any]:
 
     Thread partitioning only. ``projects_registry`` stays the single lifecycle /
     reservation SSOT; this helper never caches or duplicates that authority. It
-    calls ``create_project`` directly (idempotent for an ACTIVE project, raising
-    for a non-active/tombstoned reserved id) and fails soft to a zero descriptor
-    so an eager caller such as ``/api/state`` can never be broken by it. A
-    non-active reservation surfaces as a visible ``log.warning`` rather than a
-    silent stale live id.
+    calls ``create_project`` (idempotent for an ACTIVE project, raising for a
+    non-active/tombstoned reserved id) and fails soft to a zero descriptor so an
+    eager caller such as ``/api/state`` can never be broken by it.
+
+    Tombstone recovery (v6.83.1): if the owner deletes the novice thread, its id
+    becomes permanently reserved (``tombstoned``) — the registry NEVER resurrects
+    an id, and rightly so. So the canonical id can be poisoned. Rather than
+    stranding the newcomer chat on an empty descriptor forever, walk a bounded,
+    DETERMINISTIC fallback suffix (``gigabuddy-novice-2``, ``-3`` …) and return
+    the first id that is usable — already ACTIVE (idempotent) or free to reserve.
+    The id stays stable across restarts (a given owner-delete only advances the
+    suffix once), so the thread keeps a durable, partitioned chat_id.
     """
     try:
         from ouroboros import projects_registry
+    except Exception as exc:  # fail-soft: never break the eager caller
+        log.warning("GigaBuddy novice project unavailable (import): %s", exc)
+        return {"chat_id": 0, "project_id": ""}
 
-        project = projects_registry.create_project(
-            drive_root,
-            NOVICE_PROJECT_ID,
-            name=NOVICE_PROJECT_NAME,
-            origin="gigabuddy",
-        )
+    for candidate in _novice_project_id_candidates():
+        try:
+            project = projects_registry.create_project(
+                drive_root,
+                candidate,
+                name=NOVICE_PROJECT_NAME,
+                origin="gigabuddy",
+            )
+        except Exception as exc:
+            # This candidate is permanently reserved (tombstoned/deleting) — try
+            # the next deterministic suffix. Visible, not silent.
+            log.warning(
+                "GigaBuddy novice project id %r unusable, trying next: %s",
+                candidate,
+                exc,
+            )
+            continue
         return {
             "chat_id": int(project.get("chat_id") or 0),
             "project_id": str(project.get("id") or ""),
         }
-    except Exception as exc:  # fail-soft: never break the eager caller
-        log.warning(
-            "GigaBuddy novice project unavailable (%s): %s", NOVICE_PROJECT_ID, exc
-        )
-        return {"chat_id": 0, "project_id": ""}
+
+    # Every candidate in the bounded window is poisoned. Fail soft — the honest
+    # placeholder is correct here (the owner deleted an unusual number of threads).
+    log.warning(
+        "GigaBuddy novice project unavailable: all %d candidate ids reserved",
+        NOVICE_PROJECT_MAX_GENERATIONS,
+    )
+    return {"chat_id": 0, "project_id": ""}
 
 
 # --- B1 role-contract / persona (product-mode novice thread only) ------------
