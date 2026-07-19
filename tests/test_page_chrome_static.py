@@ -418,6 +418,67 @@ def test_gigabuddy_b3_neutral_start_and_profile_parsing(tmp_path=None):
     assert "def knowledge_dir_exists" in profile_mod  # #4 integration point
 
 
+def test_gigabuddy_knowledge_base_status_indicator():
+    """C#4 native pipeline (v6.82.0): the right panel shows a live knowledge-base
+    build status indicator next to the knowledge-folder link — building/ready/
+    empty/error + doc/chunk counts — fed from the get_state view (knowledgeBase),
+    reducer view-pure, no frozen contract churn, CSS-only (no new inline styles)."""
+    gigabuddy = _read("web/modules/gigabuddy.js")
+    css = _read("web/style.css")
+    gb_state = _read("ouroboros/gigabuddy_state.py")
+    gk = _read("ouroboros/gigabuddy_knowledge.py")
+    settings = _read("ouroboros/gateway/settings.py")
+    contracts = _read("ouroboros/gateway/contracts.py")
+
+    # --- gigabuddy.js: the indicator renderer exists, is normalized, and is wired
+    # into the knowledge-link block of the track panel.
+    assert "renderKnowledgeStatus" in gigabuddy
+    assert "normalizeKnowledgeBase" in gigabuddy
+    assert "gigabuddy-knowledge-status" in gigabuddy
+    ks_start = gigabuddy.index("function renderKnowledgeStatus")
+    ks_end = gigabuddy.index("\n}", ks_start)
+    ks = gigabuddy[ks_start:ks_end]
+    # Reads the live camelCase view fields (status + counts + llmBuilt).
+    assert "status" in ks and "docCount" in ks and "chunkCount" in ks
+    # Honest states: building/ready/empty/error are all represented.
+    for label in ("building", "ready", "empty", "error"):
+        assert label in ks or label in gigabuddy
+    # Content is escaped; renderer emits classes/markup, not inline styles.
+    assert ".style." not in ks
+
+    # --- normalizeKnowledgeBase clamps status + floors the counts defensively.
+    nk_start = gigabuddy.index("function normalizeKnowledgeBase")
+    nk_end = gigabuddy.index("\n}", nk_start)
+    nk = gigabuddy[nk_start:nk_end]
+    assert "docCount" in nk and "chunkCount" in nk and "llmBuilt" in nk
+
+    # --- CSS: the indicator + pulsing "building" dot use the accent variable,
+    # follow glassmorphism, and add no inline styles.
+    assert ".gigabuddy-knowledge-status {" in css
+    assert '.gigabuddy-knowledge-status[data-status="building"]' in css
+    assert '.gigabuddy-knowledge-status[data-status="ready"]' in css
+    assert "gigabuddy-knowledge-pulse" in css
+    assert "var(--gigabuddy-accent" in css
+
+    # --- backend: the view is enriched view-pure via knowledge_status (no LLM on
+    # the status path); the gateway fires the rebuild out-of-band (non-blocking).
+    assert "def _knowledge_base_view" in gb_state
+    assert "knowledgeBase" in gb_state
+    assert "def knowledge_status" in gk
+    assert 'return {"status": "empty"' in gk or "\"status\": \"empty\"" in gk
+    # The native LLM builder + persistence exist; the hot/status path is LLM-free.
+    assert "def rebuild_knowledge" in gk
+    assert "def _llm_build_chunks" in gk
+    assert "_WIKI_INDEX_DIRNAME" in gk  # derived .wiki_index/ storage
+    assert "LLMClient" in gk  # LLM via the shared client, not raw HTTP
+    # The gateway triggers the one-time background rebuild when status=building.
+    assert "_maybe_trigger_knowledge_rebuild" in settings
+    assert "rebuild_knowledge" in settings
+    # No frozen contract churn for the knowledge-base status data.
+    assert "knowledgebase" not in contracts.lower()
+    assert "gigabuddy" not in contracts.lower()
+
+
 def test_server_navigation_and_chat_static_contracts():
     server_source = _read("server.py")
     state_source = _read("ouroboros/gateway/state.py")

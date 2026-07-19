@@ -11,6 +11,7 @@ import pathlib
 import re
 import socket
 import sys
+import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -467,6 +468,47 @@ def _generic_gigabuddy_settings_guard(
     return None
 
 
+_knowledge_rebuild_inflight: set = set()
+_knowledge_rebuild_lock = threading.Lock()
+
+
+def _run_knowledge_rebuild(employee_id: str) -> None:
+    """Background worker: run the ONE-TIME LLM wiki build + persist, then release
+    the in-flight guard. Fail-soft — never propagates."""
+    try:
+        from ouroboros import gigabuddy_knowledge as _gk
+
+        _gk.rebuild_knowledge(employee_id, use_llm=True)
+    except Exception:
+        pass
+    finally:
+        with _knowledge_rebuild_lock:
+            _knowledge_rebuild_inflight.discard(employee_id)
+
+
+def _maybe_trigger_knowledge_rebuild(view: Dict[str, Any]) -> None:
+    """When the panel view reports knowledgeBase.status == 'building', spawn a
+    background (daemon) LLM rebuild for that employee. Deduplicated so concurrent
+    get_state polls don't launch overlapping builds. Non-blocking, fail-soft."""
+    try:
+        kb = view.get("knowledgeBase") if isinstance(view, dict) else None
+        if not isinstance(kb, dict) or kb.get("status") != "building":
+            return
+        emp = view.get("activeEmployeeId")
+        employee_id = str(emp or "").strip()
+        if not employee_id:
+            return
+        with _knowledge_rebuild_lock:
+            if employee_id in _knowledge_rebuild_inflight:
+                return
+            _knowledge_rebuild_inflight.add(employee_id)
+        threading.Thread(
+            target=_run_knowledge_rebuild, args=(employee_id,), daemon=True
+        ).start()
+    except Exception:
+        pass
+
+
 def _handle_gigabuddy_action(request: Request, body: Dict[str, Any]) -> JSONResponse:
     """Handle GigaBuddy state/action commands through the existing settings seam."""
     try:
@@ -486,6 +528,11 @@ def _handle_gigabuddy_action(request: Request, body: Dict[str, Any]) -> JSONResp
             "chatId": novice["chat_id"],
             "projectId": novice["project_id"],
         }
+        # #4 Karpathy-wiki: when the mentor's knowledge folder has sources but no
+        # fresh built index (status == "building"), fire the ONE-TIME LLM build in
+        # the BACKGROUND so this response stays fast. The next get_state poll picks
+        # up status == "ready". Non-blocking, fail-soft, dedup'd per employee.
+        _maybe_trigger_knowledge_rebuild(view)
         return JSONResponse({
             "ok": True,
             "status": "ok",

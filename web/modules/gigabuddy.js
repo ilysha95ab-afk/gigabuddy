@@ -97,6 +97,29 @@ function normalizeView(state = {}) {
         mentorNotes: Array.isArray(source.mentorNotes) ? source.mentorNotes : [],
         events: Array.isArray(source.events) ? source.events : [],
         questionnairePackage: { ...GIGABUDDY_DEMO_STATE.questionnairePackage, ...(source.questionnairePackage || {}) },
+        knowledgeBase: normalizeKnowledgeBase(source.knowledgeBase),
+    };
+}
+
+const KNOWLEDGE_STATUSES = ['empty', 'building', 'ready', 'error'];
+
+/**
+ * Normalize the knowledgeBase status descriptor from the live get_state view.
+ * Shape: { status: empty|building|ready|error, docCount, chunkCount, llmBuilt }.
+ * Always returns a safe object so the panel never throws on a missing/legacy view.
+ */
+function normalizeKnowledgeBase(kb = {}) {
+    const source = kb && typeof kb === 'object' ? kb : {};
+    const status = KNOWLEDGE_STATUSES.includes(source.status) ? source.status : 'empty';
+    const toCount = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    };
+    return {
+        status,
+        docCount: toCount(source.docCount),
+        chunkCount: toCount(source.chunkCount),
+        llmBuilt: Boolean(source.llmBuilt),
     };
 }
 
@@ -193,6 +216,43 @@ export function renderGigaBuddyLeftTrack(view = GIGABUDDY_DEMO_STATE) {
     `;
 }
 
+const KNOWLEDGE_STATUS_LABEL = {
+    empty: 'База знаний пуста',
+    building: 'База обновляется…',
+    ready: 'База обновлена',
+    error: 'Не удалось построить базу',
+};
+
+/**
+ * Render the knowledge-base status indicator shown next to the knowledge-folder
+ * link (the mentor watches this while setting GigaBuddy up, before the newcomer
+ * arrives). Status + doc/chunk counts come from the live get_state view
+ * (knowledgeBase). building → pulsing "обновляется…", ready → count, empty →
+ * neutral, error → honest failure (never faked ready). CSS-driven, no inline styles.
+ */
+function renderKnowledgeStatus(kb = {}) {
+    const status = KNOWLEDGE_STATUSES.includes(kb.status) ? kb.status : 'empty';
+    const docCount = Number(kb.docCount || 0);
+    const chunkCount = Number(kb.chunkCount || 0);
+    const label = KNOWLEDGE_STATUS_LABEL[status] || KNOWLEDGE_STATUS_LABEL.empty;
+    let detail = '';
+    if (status === 'ready') {
+        detail = `${docCount} док. · ${chunkCount} фрагм.`;
+    } else if (status === 'building') {
+        detail = docCount ? `${docCount} док. в обработке` : 'извлечение и построение связей';
+    } else if (status === 'error') {
+        detail = 'проверьте файлы в папке знаний';
+    } else {
+        detail = 'наставник ещё не добавил файлы';
+    }
+    return `
+        <div class="gigabuddy-knowledge-status" data-status="${escapeHtml(status)}" role="status" aria-live="polite">
+            <span class="gigabuddy-knowledge-status-dot" aria-hidden="true"></span>
+            <span class="gigabuddy-knowledge-status-label">${escapeHtml(label)}</span>
+            <span class="gigabuddy-knowledge-status-detail">${escapeHtml(detail)}</span>
+        </div>`;
+}
+
 export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
     const state = normalizeView(view);
     const employee = state.employee || {};
@@ -250,6 +310,7 @@ export function renderGigaBuddyTrackPanel(view = GIGABUDDY_DEMO_STATE) {
                 <span>Материалы базы знаний</span>
                 <p>Первоисточники твоего отдела лежат здесь — открой при желании:</p>
                 <code class="gigabuddy-knowledge-path">${escapeHtml(knowledgePath)}</code>
+                ${renderKnowledgeStatus(state.knowledgeBase)}
             </div>
             <form class="gigabuddy-return-card" data-gigabuddy-return-form>
                 <div>

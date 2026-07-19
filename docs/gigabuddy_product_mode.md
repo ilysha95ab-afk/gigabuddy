@@ -92,9 +92,9 @@ DEVELOPER sidebar when product mode is off — an honest artifact of a real
 thread. The novice never sees it (product mode hides the Projects nav). This is
 not activity-gated in B1.
 
-Content that fills these columns — the in-chat onboarding questionnaire, the
-knowledge-base "wiki" retrieval, and the adaptation methodology skill — is
-deliberately deferred to later increments (B3 / C).
+Content that fills these columns is now built: the in-chat onboarding
+questionnaire (B3), the adaptation methodology (C / #5, embedded in the persona),
+and the knowledge-base "wiki" retrieval (C / #4, `gigabuddy_knowledge.py`).
 
 ## Deliberate boundaries
 
@@ -218,11 +218,76 @@ that thread.
 - **Stage / track awareness:** the persona knows the current mentorship stage
   (Советчик → Помощник → Партнёр — the status stays in the RIGHT panel) and the
   employee's adaptation track, and leads the conversation accordingly.
-- **Knowledge integration point (not retrieval yet):** the persona names the
-  employee's first-source knowledge folder
-  (`~/Ouroboros/gigabuddy/employees/<id>/knowledge/`, via
-  `novice_knowledge_dir`) and is told NOT to invent facts. The actual
-  Karpathy-wiki retrieval skill is deferred to B3/C.
+- **Knowledge retrieval — the "Karpathy wiki" NATIVE LLM ingest pipeline
+  (C / #4, form Б, reworked in v6.82.0):** the mentor just drops **raw text
+  files as-is** — `.txt`, `.md`, `.docx` — into
+  `~/Ouroboros/gigabuddy/employees/<id>/knowledge/` with **NO** manual
+  `#tags`/`[[links]]`/heading markup. Ouroboros builds the wiki itself. Engine:
+  `ouroboros/gigabuddy_knowledge.py` — no external skill / skill-review, and
+  still **NOT RAG** (no embeddings, no vector DB, no heavy dependencies). Its
+  pipeline:
+  - **Text extraction (`_extract_text`).** `.txt`/`.md` are read directly with a
+    correct-encoding, byte-capped read. `.docx` is extracted via the **optional
+    fail-soft `docx2txt` dependency** (declared in `pyproject.toml`); when the
+    library is absent the `.docx` file is **honestly skipped** (returns no text,
+    never fabricated) while `.txt`/`.md` always work. Any extraction error
+    degrades fail-soft to "no text".
+  - **Ingest.** Recursively walks the folder for `.txt`/`.md`/`.docx`, strictly
+    folder-confined (the dir AND every file pass `_is_confined`; a `..`/symlink
+    escape is refused; the `.wiki_index/` service dir is skipped via
+    `_under_service_dir`), fail-soft (a missing / empty / broken folder yields
+    an empty index and never raises), and bounded (caps on file count, per-file
+    bytes, total bytes, and chunk count).
+  - **LLM wiki-building (`_llm_build_chunks`, BUILD-time only).** At build time —
+    **never on the per-turn persona hot path** — each file's clean text is sent
+    to the **LIGHT LLM slot** through `LLMClient` + `usage_accounting`
+    (reserve→dispatch→settle, scope `gigabuddy_knowledge`, `reasoning_effort=low`,
+    `response_format=json_object`) using `_build_wiki_prompt` (a `.replace()`
+    template — NEVER `str.format()`, because the prompt contains a literal JSON
+    example whose `{...}` braces would raise `KeyError`). The model segments raw
+    text into SEMANTIC chunks and GENERATES the tags + cross-topic `[[links]]`
+    (the Karpathy "build the graph yourself" methodology) as strict JSON.
+  - **Fail-soft degradation.** If the LLM is unavailable / errors / returns
+    unparseable output for a file, that file degrades to deterministic
+    heading/structural chunking (`_chunk_markdown`) and the whole index is marked
+    `llm_built=False`. It NEVER fabricates a fact not in the documents.
+  - **Retrieval (unchanged).** Field-weighted BM25 (heading/tags weighted far
+    above body, so an exact topic-word hit decisively outranks a chunk that only
+    matched common query words) returns the top-N chunks PLUS their graph
+    neighbours, so a directly-linked section rides along even when the query
+    only matched a sibling.
+  - **Persistence & auto-update.** The built wiki (chunks/tags/graph/BM25 index)
+    is serialized to a service subdir `knowledge/.wiki_index/index.json`
+    (`save_index` / `load_persisted_index`, atomic, folder-confined, schema-
+    versioned). Deleting a source file drops its chunks on the next rebuild;
+    deleting `.wiki_index/` re-derives everything from the sources. A change in
+    the folder's file-composition + mtimes (`_folder_signature`, which excludes
+    the service dir) makes `knowledge_status` report `building`, and a **one-time
+    background daemon rebuild** is fired from the gateway
+    (`_maybe_trigger_knowledge_rebuild` in `_handle_gigabuddy_action`), deduped
+    against concurrent `get_state` polls — non-blocking, so the response stays
+    fast and the next poll picks up `ready`.
+  - **Persona injection & honesty.** `build_gigabuddy_persona` reads only the
+    PERSISTED index (`knowledge_context_block`, `get_index` with `use_llm=False`
+    on the hot path — an LLM build is never triggered per turn) and injects a
+    structural digest (topics + tags, always present so the mentor can say which
+    topics exist) plus query-scored excerpts (from the newcomer's live message
+    via `_task_query_text`). When nothing scores or the base is empty, the
+    persona says so honestly («в базе знаний отдела этого нет / уточню у
+    наставника») and NEVER fabricates a fact. `novice_knowledge_dir` remains the
+    display pointer to the source folder.
+  - **Status indicator (Part 3).** `build_gigabuddy_view` exposes a **view-pure**
+    camelCase `knowledgeBase:{status,docCount,chunkCount,llmBuilt}` field
+    (`status` ∈ `empty|building|ready|error`) via `_knowledge_base_view` →
+    `knowledge_status` (which reports status WITHOUT triggering an LLM build).
+    The RIGHT panel renders it next to the «Материалы базы знаний» link
+    (`renderKnowledgeStatus` / `normalizeKnowledgeBase` in
+    `web/modules/gigabuddy.js`, styled via `.gigabuddy-knowledge-status` in
+    `web/style.css`, CSS-variables only, per-status colour + pulsing dot):
+    "база обновляется…" while building, "база обновлена" + doc/chunk counts when
+    ready, honest empty/error states otherwise — so the mentor sees the base
+    build during setup, before the newcomer arrives. No frozen
+    `contracts.py`/`StateResponse`/route is touched; the reducer stays view-pure.
 - **Safety:** the persona is built read-only over the novice-safe view
   (`build_gigabuddy_view`), so `internal_signals`, mentor notes, and rollback
   history never reach it. Any failure yields `""` (fail-soft) so the novice

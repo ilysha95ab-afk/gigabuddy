@@ -734,7 +734,22 @@ def build_gigabuddy_view(state: Dict[str, Any]) -> Dict[str, Any]:
             "questions": package.get("questions", [])[:5],
         },
         "events": [event for event in (_novice_event(row) for row in state.get("events", [])[-8:]) if event],
+        # #4 Karpathy-wiki build status for the right-panel indicator. View-pure and
+        # NON-BLOCKING: knowledge_status() reads the live folder signature + any
+        # persisted .wiki_index/ index and NEVER triggers the LLM build here. The
+        # actual (re)build is fired out-of-band by the gateway seam. Fail-soft.
+        "knowledgeBase": _knowledge_base_view(emp.get("id") or ""),
     }
+
+
+def _knowledge_base_view(employee_id: str) -> Dict[str, Any]:
+    """Novice-safe knowledge-base status for the panel indicator (fail-soft)."""
+    try:
+        from ouroboros import gigabuddy_knowledge as _gk
+
+        return _gk.knowledge_status(employee_id)
+    except Exception:
+        return {"status": "empty", "docCount": 0, "chunkCount": 0, "llmBuilt": False}
 
 
 def _stage_help(stage_id: str) -> str:
@@ -1174,7 +1189,7 @@ def _methodology_block(has_base_questionnaire: bool, questionnaire_hints: list[s
     return base + _METHODOLOGY_GUIDANCE
 
 
-def build_gigabuddy_persona(drive_root: pathlib.Path | str) -> str:
+def build_gigabuddy_persona(drive_root: pathlib.Path | str, query: str = "") -> str:
     """Return the product-mode ГигаБадди role-contract for the novice thread.
 
     A system-context section that turns the ONE Ouroboros identity into the
@@ -1227,6 +1242,18 @@ def build_gigabuddy_persona(drive_root: pathlib.Path | str) -> str:
     track_block = "\n".join(track_lines) if track_lines else "  - (трек ещё не построен)"
 
     knowledge_dir = novice_knowledge_dir(employee.get("id") or "")
+    # #4 Karpathy-wiki retrieval (form Б): index the department knowledge base and
+    # inject a structural digest + query-scored top-N excerpts. Fail-soft: any
+    # error yields "" and the persona falls back to the folder-pointer + honesty.
+    knowledge_block = ""
+    try:
+        from ouroboros import gigabuddy_knowledge as _gk
+
+        knowledge_block = _gk.knowledge_context_block(
+            employee.get("id") or "", query or ""
+        )
+    except Exception:
+        knowledge_block = ""
     # #5 integration point: if HR/management placed a base questionnaire in the
     # employee folder, lean on its REAL prompts during the acquaintance scenario.
     # Fail-soft: any read error yields no questionnaire grounding, not a break.
@@ -1332,12 +1359,18 @@ def build_gigabuddy_persona(drive_root: pathlib.Path | str) -> str:
         "Веди разговор сообразно тому, где человек на пути адаптации:\n"
         f"{track_block}\n\n"
         f"{scenario_block}\n"
-        "### База знаний (точка интеграции)\n"
-        "Ты отвечаешь по базе знаний отдела сотрудника — первоисточники лежат в "
-        f"папке `{knowledge_dir}`. Если у тебя нет реального факта из этой базы — "
-        "НЕ выдумывай: честно скажи, что уточнишь/предложишь посмотреть первоисточник, "
-        "и опирайся только на то, что реально доступно. (Полноценный поиск по базе "
-        "знаний появится позже — сейчас не притворяйся, что он уже есть.)\n"
+        + (
+            knowledge_block + "\n"
+            if knowledge_block
+            else (
+                "### База знаний отдела\n"
+                "Ты отвечаешь по базе знаний отдела сотрудника — первоисточники лежат в "
+                f"папке `{knowledge_dir}`. Сейчас в этой папке нет материалов (наставник "
+                "их ещё не положил). Пока базы нет — НЕ выдумывай факты: честно скажи, что "
+                "уточнишь у наставника или предложишь посмотреть первоисточник, и опирайся "
+                "только на то, что реально доступно.\n"
+            )
+        )
     )
 
 
@@ -1356,7 +1389,26 @@ def gigabuddy_persona_section(task: Dict[str, Any], drive_root: pathlib.Path | s
 
         if resolve_project_id(task) != NOVICE_PROJECT_ID:
             return ""
-        return build_gigabuddy_persona(drive_root)
+        return build_gigabuddy_persona(drive_root, query=_task_query_text(task))
     except Exception:
         log.debug("GigaBuddy persona section skipped on error", exc_info=True)
         return ""
+
+
+def _task_query_text(task: Dict[str, Any]) -> str:
+    """Best-effort newcomer question text from the per-turn task, for #4 retrieval.
+
+    A DIRECT chat turn (the novice typing in the chat) carries the live message in
+    ``task['text']`` (see context.build_user_content); a queued/headless task
+    carries it in ``objective``. We try both plus common fallbacks, so query-scored
+    excerpts fire for the live novice question regardless of turn shape. Used only
+    to score the knowledge base; a missing/empty value just yields a structural
+    digest without query-scored excerpts. Never raises."""
+    try:
+        for key in ("objective", "message", "text", "prompt"):
+            val = task.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()[:1000]
+    except Exception:
+        pass
+    return ""
