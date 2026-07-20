@@ -6597,3 +6597,143 @@ body[data-gigabuddy-theme="fluffy-cat"] .msg-routing-annotation {
     86%  { transform: translate(36px, -22px) scaleX(-1); }
     100% { transform: translate(0, 0) scaleX(1); }
 }
+
+/* ---- 'strict-grid' per-employee theme (v6.88.0, ui-depth evolution) ----
+   Михаил Петрович: strict senior, no fluff — white background with a faint
+   thin grid (math-notebook style), graphite text, restrained accents, small
+   radii. Activated ONLY via body[data-gigabuddy-theme="strict-grid"], which
+   applyGigaBuddyInterface sets from the employee's OWN interface.theme — so
+   the theme appears only in that employee's session and never leaks into
+   other employees or the plain Ouroboros shell. No pastels, no mascots,
+   no external assets. */
+body[data-gigabuddy-theme="strict-grid"] {
+    --gigabuddy-accent: #4a6274;
+    background-color: #fcfcfa;
+    background-image:
+        linear-gradient(rgba(110, 130, 160, 0.16) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(110, 130, 160, 0.16) 1px, transparent 1px);
+    background-size: 26px 26px;
+    color: #33383f;
+}
+
+body[data-gigabuddy-theme="strict-grid"] .message,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-track-panel,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-track-hero,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-demo-context,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-stage-card,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-return-card,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-mentor-details,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-mentor-events,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-knowledge-link {
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(90, 105, 125, 0.28);
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(70, 85, 105, 0.10);
+    color: #33383f;
+}
+
+body[data-gigabuddy-theme="strict-grid"] .message,
+body[data-gigabuddy-theme="strict-grid"] .message p,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-track-panel,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-track-panel p,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-track-panel span,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-track-panel h3,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-track-panel summary,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-demo-context p,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-demo-context span,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-mentor-details p,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-mentor-details summary,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-mentor-events summary {
+    color: #3c434c;
+}
+
+body[data-gigabuddy-theme="strict-grid"] #chat-input-area textarea,
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-return-pin input {
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(90, 105, 125, 0.35);
+    border-radius: 6px;
+    color: #33383f;
+}
+
+body[data-gigabuddy-theme="strict-grid"] .gigabuddy-chip {
+    background: rgba(74, 98, 116, 0.12);
+    color: #40586c;
+}
+
+/* Chat message text: role-specific rules (.chat-bubble.user/.assistant/.system
+   .message, specificity 0,3,0) would otherwise beat the generic strict-grid
+   .message rule (0,2,1) and paint near-white text on the light bubble. This
+   (0,3,1) rule wins without !important. */
+body[data-gigabuddy-theme="strict-grid"] .chat-bubble .message,
+body[data-gigabuddy-theme="strict-grid"] .chat-bubble .message p,
+body[data-gigabuddy-theme="strict-grid"] .chat-bubble.user .message,
+body[data-gigabuddy-theme="strict-grid"] .chat-bubble.assistant .message,
+body[data-gigabuddy-theme="strict-grid"] .chat-bubble.system .message {
+    color: #33383f;
+}
+
+/* Sender labels and timestamps: base rules use light-theme vars that are
+   invisible on the strict-grid light bubble — scoped (0,3,1) override. */
+body[data-gigabuddy-theme="strict-grid"] .chat-bubble .sender,
+body[data-gigabuddy-theme="strict-grid"] .chat-bubble.user .sender,
+body[data-gigabuddy-theme="strict-grid"] .chat-bubble.assistant .sender,
+body[data-gigabuddy-theme="strict-grid"] .chat-bubble.system .sender,
+body[data-gigabuddy-theme="strict-grid"] .chat-bubble .msg-time,
+body[data-gigabuddy-theme="strict-grid"] .msg-routing-annotation {
+    color: #5d6672;
+}
+
+/* Vacation countdown ring (strict-grid only): mounted by
+   syncGigaBuddyVacationCounter into the LEFT track slot only while this theme
+   is active. The 1s JS timer ticks the numbers and rotates the hand; the arc
+   advances as the deadline approaches. Pure SVG+CSS, no libraries. */
+.gigabuddy-vacation-counter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 14px 10px;
+}
+
+.gigabuddy-vacation-ring {
+    width: 132px;
+    height: 132px;
+}
+
+.gigabuddy-vacation-ring-bg {
+    fill: none;
+    stroke: rgba(110, 130, 160, 0.25);
+    stroke-width: 6;
+}
+
+.gigabuddy-vacation-ring-fill {
+    fill: none;
+    stroke: #4a6274;
+    stroke-width: 6;
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    transform-origin: 60px 60px;
+}
+
+.gigabuddy-vacation-hand line {
+    stroke: #8496a8;
+    stroke-width: 2;
+}
+
+.gigabuddy-vacation-hand-dot {
+    fill: #4a6274;
+}
+
+.gigabuddy-vacation-hours {
+    font-size: 28px;
+    font-weight: 700;
+    color: #33383f;
+    font-variant-numeric: tabular-nums;
+}
+
+.gigabuddy-vacation-clock {
+    font-size: 14px;
+    color: #5d6672;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+}

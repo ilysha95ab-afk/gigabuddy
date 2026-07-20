@@ -277,6 +277,45 @@ def test_gigabuddy_fluffy_cat_theme_scoped_to_employee():
     assert 'body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble .msg-time' in css
 
 
+def test_gigabuddy_strict_grid_theme_and_vacation_counter():
+    """v6.88.0: the 'strict-grid' ui-depth evolution (white math-notebook grid
+    shell + interactive vacation countdown) is strictly scoped to the employee
+    whose own interface.theme carries the value — other employees and the
+    plain shell are untouched."""
+    gigabuddy = _read("web/modules/gigabuddy.js")
+    css = _read("web/style.css")
+    state_py = _read("ouroboros/gigabuddy_state.py")
+
+    # The theme is a validated enum member on BOTH sides (js shell + reducer).
+    assert "'strict-grid'" in gigabuddy
+    assert '"strict-grid"' in state_py
+    # All theme rules are gated on the per-employee body attribute.
+    assert 'body[data-gigabuddy-theme="strict-grid"]' in css
+    # The math-notebook grid is a pure CSS gradient grid, no external assets.
+    strict_grid_css = css.split('body[data-gigabuddy-theme="strict-grid"]', 1)[1]
+    assert "linear-gradient(" in strict_grid_css
+    assert "background-size: 26px 26px" in strict_grid_css
+    assert "url(" not in strict_grid_css
+    # Chat text stays readable on the light bubble (role-specific overrides
+    # would otherwise paint near-white text, the v6.87.8 lesson).
+    assert 'body[data-gigabuddy-theme="strict-grid"] .chat-bubble.assistant .message' in css
+    assert 'body[data-gigabuddy-theme="strict-grid"] .chat-bubble.user .sender' in css
+    assert 'body[data-gigabuddy-theme="strict-grid"] .chat-bubble .msg-time' in css
+    # Vacation countdown: SVG ring + 1s timer, mounted ONLY for strict-grid and
+    # torn down on any other theme/reset. No libraries.
+    assert "GIGABUDDY_STRICT_GRID_VACATION_DEADLINE" in gigabuddy
+    assert "gigabuddy-vacation-counter" in gigabuddy
+    assert "gigabuddy-vacation-ring" in gigabuddy
+    assert "setInterval(tickGigaBuddyVacation, 1000)" in gigabuddy
+    assert "theme === 'strict-grid'" in gigabuddy
+    assert "syncGigaBuddyVacationCounter(theme)" in gigabuddy
+    assert "syncGigaBuddyVacationCounter('neutral')" in gigabuddy
+    assert "clearInterval(vacationTimer)" in gigabuddy
+    assert "gigabuddy-vacation-counter" in css
+    # The counter occupies the LEFT track slot only when the track is empty.
+    assert "renderGigaBuddyVacationCounter()" in gigabuddy
+
+
 def test_gigabuddy_three_column_layout_and_novice_thread(tmp_path=None):
     """B1 (v6.76.0): cohesive 3-column product-mode layout (track / novice chat /
     panel) with a backend-partitioned novice thread reusing project chat_id

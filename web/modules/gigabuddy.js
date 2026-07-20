@@ -131,7 +131,7 @@ function normalizeKnowledgeBase(kb = {}) {
 }
 
 const HEX_ACCENT_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
-const ALLOWED_INTERFACE_THEMES = ['neutral', 'soft-cat', 'strict-terminal', 'warm-sunrise', 'ocean-calm', 'fluffy-cat'];
+const ALLOWED_INTERFACE_THEMES = ['neutral', 'soft-cat', 'strict-terminal', 'warm-sunrise', 'ocean-calm', 'fluffy-cat', 'strict-grid'];
 const ALLOWED_TONES = ['formal', 'friendly', 'playful'];
 
 /**
@@ -163,6 +163,78 @@ function syncGigaBuddyPixelCat(theme) {
     }
 }
 
+/* --- strict-grid vacation countdown (v6.88.0, ui-depth evolution) ---
+   Михаил Петрович has NO adaptation track (he is a senior "Партнёр" from day
+   one), so the left column slot instead carries an interactive countdown to
+   his vacation. DEMO DATA: the deadline is a code constant on purpose —
+   changing the date is a code edit, not runtime state. */
+const GIGABUDDY_STRICT_GRID_VACATION_DEADLINE = '2026-08-01T09:00:00';
+const GIGABUDDY_STRICT_GRID_VACATION_START = '2026-07-20T00:00:00';
+const VACATION_COUNTER_CLASS = 'gigabuddy-vacation-counter';
+let vacationTimer = null;
+
+function renderGigaBuddyVacationCounter() {
+    return `
+        <div class="gigabuddy-track-slot-head">До отпуска</div>
+        <div class="${VACATION_COUNTER_CLASS}" role="status" aria-live="polite">
+            <svg class="gigabuddy-vacation-ring" viewBox="0 0 120 120" aria-hidden="true">
+                <circle class="gigabuddy-vacation-ring-bg" cx="60" cy="60" r="52"></circle>
+                <circle class="gigabuddy-vacation-ring-fill" cx="60" cy="60" r="52"
+                    stroke-dasharray="326.73" stroke-dashoffset="326.73"></circle>
+                <g class="gigabuddy-vacation-hand">
+                    <line x1="60" y1="60" x2="60" y2="16"></line>
+                    <circle class="gigabuddy-vacation-hand-dot" cx="60" cy="16" r="4"></circle>
+                </g>
+            </svg>
+            <div class="gigabuddy-vacation-hours">…</div>
+            <div class="gigabuddy-vacation-clock">…</div>
+        </div>
+    `;
+}
+
+function tickGigaBuddyVacation() {
+    const host = document.querySelector(`.${VACATION_COUNTER_CLASS}`);
+    if (!host) return;
+    const now = Date.now();
+    const deadline = new Date(GIGABUDDY_STRICT_GRID_VACATION_DEADLINE).getTime();
+    const start = new Date(GIGABUDDY_STRICT_GRID_VACATION_START).getTime();
+    const remaining = Math.max(0, deadline - now);
+    const totalSec = Math.floor(remaining / 1000);
+    const hours = Math.floor(totalSec / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const seconds = totalSec % 60;
+    const pad = (value) => String(value).padStart(2, '0');
+    const hoursEl = host.querySelector('.gigabuddy-vacation-hours');
+    const clockEl = host.querySelector('.gigabuddy-vacation-clock');
+    if (hoursEl) hoursEl.textContent = `${hours} ч`;
+    if (clockEl) clockEl.textContent = `${pad(minutes)}:${pad(seconds)}`;
+    const progress = deadline > start ? Math.min(1, Math.max(0, (now - start) / (deadline - start))) : 1;
+    const ring = host.querySelector('.gigabuddy-vacation-ring-fill');
+    if (ring) ring.setAttribute('stroke-dashoffset', String(326.73 * (1 - progress)));
+    // The moving element: a hand sweeping the dial once per minute (updated by
+    // the 1s timer), plus the ring arc itself advancing as time passes.
+    const hand = host.querySelector('.gigabuddy-vacation-hand');
+    if (hand) hand.setAttribute('transform', `rotate(${(totalSec % 60) * 6} 60 60)`);
+}
+
+/**
+ * Start/stop the 1s countdown timer. Scoped strictly by theme value: the timer
+ * runs only while body[data-gigabuddy-theme="strict-grid"] is active (that
+ * value comes from the employee's OWN interface.theme), so other employees and
+ * the plain Ouroboros shell never see it.
+ */
+function syncGigaBuddyVacationCounter(theme) {
+    if (theme === 'strict-grid') {
+        tickGigaBuddyVacation();
+        if (!vacationTimer) {
+            vacationTimer = setInterval(tickGigaBuddyVacation, 1000);
+        }
+    } else if (vacationTimer) {
+        clearInterval(vacationTimer);
+        vacationTimer = null;
+    }
+}
+
 export function applyGigaBuddyInterface(iface = {}, root = document) {
     const body = document.body;
     const theme = ALLOWED_INTERFACE_THEMES.includes(iface.theme) ? iface.theme : 'neutral';
@@ -176,6 +248,7 @@ export function applyGigaBuddyInterface(iface = {}, root = document) {
         body.style.removeProperty('--gigabuddy-accent');
     }
     syncGigaBuddyPixelCat(theme);
+    syncGigaBuddyVacationCounter(theme);
     void root;
 }
 
@@ -185,6 +258,7 @@ export function resetGigaBuddyInterface() {
     delete body.dataset.gigabuddyTone;
     body.style.removeProperty('--gigabuddy-accent');
     syncGigaBuddyPixelCat('neutral');
+    syncGigaBuddyVacationCounter('neutral');
 }
 
 function renderEvents(state) {
@@ -211,6 +285,11 @@ export function renderGigaBuddyLeftTrack(view = GIGABUDDY_DEMO_STATE) {
     const track = Array.isArray(state.track) ? state.track : [];
     const doneCount = track.filter((item) => item.status === 'done').length;
     if (!track.length) {
+        // strict-grid (Михаил Петрович): no adaptation track by design — the
+        // left slot carries his vacation countdown instead of the placeholder.
+        if ((state.interface || {}).theme === 'strict-grid') {
+            return renderGigaBuddyVacationCounter();
+        }
         return `
             <div class="gigabuddy-track-slot-head">Адаптационный трек</div>
             <div class="gigabuddy-track-empty">
