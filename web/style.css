@@ -6535,6 +6535,29 @@ body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-chip {
     color: #a0506c;
 }
 
+/* Chat message text: role-specific rules (.chat-bubble.user/.assistant/.system .message,
+   specificity 0,3,0) would otherwise beat the generic fluffy-cat .message rule (0,2,1)
+   and paint near-white text on the light bubble. This (0,3,1) rule wins without !important. */
+body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble .message,
+body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble .message p,
+body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble.user .message,
+body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble.assistant .message,
+body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble.system .message {
+    color: #4a3f4d;
+}
+
+/* Sender labels and timestamps: base rules use light-theme vars
+   (--user-sender rgba(155,185,240,...), msg-routing-annotation white) that
+   are invisible on the fluffy-cat light bubble — scoped (0,3,1) override. */
+body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble .sender,
+body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble.user .sender,
+body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble.assistant .sender,
+body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble.system .sender,
+body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble .msg-time,
+body[data-gigabuddy-theme="fluffy-cat"] .msg-routing-annotation {
+    color: #6b5a64;
+}
+
 /* Animated 8-bit cat: CSS-only pixel sprite (box-shadow art, no assets), hops
    along the bottom of her chat next to the message boxes. The element is
    mounted by syncGigaBuddyPixelCat only while this theme is active. */

@@ -266,6 +266,15 @@ def test_gigabuddy_fluffy_cat_theme_scoped_to_employee():
     assert "existing.remove()" in gigabuddy
     assert "syncGigaBuddyPixelCat(theme)" in gigabuddy
     assert "syncGigaBuddyPixelCat('neutral')" in gigabuddy
+    # v6.87.8: role-specific chat-text rules (.chat-bubble.user/.assistant/.system
+    # .message, specificity 0,3,0) would otherwise beat the generic fluffy-cat
+    # .message rule and paint near-white text on the light bubble — a scoped
+    # (0,3,1) override keeps her chat text readable.
+    assert 'body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble.assistant .message' in css
+    # v6.87.8: sender labels and timestamps also use light-theme vars that are
+    # invisible on the fluffy-cat light bubble — scoped override covers them.
+    assert 'body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble.user .sender' in css
+    assert 'body[data-gigabuddy-theme="fluffy-cat"] .chat-bubble .msg-time' in css
 
 
 def test_gigabuddy_three_column_layout_and_novice_thread(tmp_path=None):
