@@ -1004,6 +1004,14 @@ def _transition(state: Dict[str, Any], target_stage: str, reason: str, op: str) 
 
 
 def _op_approve_stage(state: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    """DIRECT stage advance — an owner-commanded escape hatch, NOT the normal path.
+
+    The standard mentor-controlled flow is ``propose_evolution`` (role_tempo) →
+    Telegram ping to the mentor → ``approve_evolution``; only that path notifies
+    the mentor. This direct op exists for explicit owner commands (e.g. demo
+    setup) and bypasses the approval circuit by design, so no Telegram
+    notification is sent here.
+    """
     emp = _active_employee(state)
     target = _stage(payload.get("stage"), NEXT_STAGE[_stage(emp.get("stage"))])
     return _transition(state, target, _clip(payload.get("reason"), MAX_NOTE_CHARS) or "mentor_approved", "approve_stage")
@@ -1512,7 +1520,16 @@ def build_gigabuddy_persona(drive_root: pathlib.Path | str, query: str = "") -> 
         "решит»). Зафиксируй запрос как предложение эволюции через шов "
         "propose_evolution — наставник получит уведомление и примет решение. "
         "Слово «эволюция» в значении «персональное улучшение по запросу» здесь "
-        "использовать можно и нужно.\n\n"
+        "использовать можно и нужно. Никогда не заявляй новичку, что наставник "
+        "уже подтвердил эволюцию или переход, пока реального подтверждения не "
+        "было: говори только «передала наставнику, жду решения».\n\n"
+        "### Проактивный переход на следующую стадию\n"
+        "Следи за треком и диалогом: если цели текущей стадии достигнуты (шаги "
+        "этапа выполнены, новичок справляется и задаёт вопросы следующего "
+        "уровня) — САМА инициируй разговор о переходе (например: «ты отлично "
+        "освоился, пора переходить на следующий уровень»), не жди, пока новичок "
+        "попросит сам. Зафиксируй это как предложение эволюции role_tempo через "
+        "propose_evolution — решение принимает наставник.\n\n"
         "### Кого ты сопровождаешь (из персистентного состояния)\n"
         f"{profile_block}\n"
         f"{stage_block}\n"

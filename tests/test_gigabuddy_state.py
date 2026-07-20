@@ -711,6 +711,24 @@ def test_evolution_propose_attempts_mentor_notify_fail_soft(tmp_path):
     assert events  # journal event preserved regardless of Telegram
 
 
+def test_evolution_propose_role_tempo_attempts_mentor_notify(tmp_path):
+    """v6.87.9: a role_tempo propose also attempts the mentor Telegram ping —
+    the notification covers ALL depths, not only interface (fail-soft without a
+    bridge). The normal mentor-controlled path for a stage change is
+    propose_evolution → Telegram → approve_evolution, NOT a direct approve_stage."""
+    _load_alice(tmp_path)
+    pid, r = _propose_evo(tmp_path, depth="role_tempo", stage="assistant", source="novice_request")
+    audit = r["audit"]
+    assert audit["result"] == "success"
+    assert audit["depth"] == "role_tempo"
+    assert audit["telegram_notified"] is False  # fail-soft, not an error
+    emp = _evo_emp(r["state"])
+    proposal = emp["evolution_proposals"][-1]
+    assert proposal["id"] == pid
+    assert proposal["depth"] == "role_tempo"
+    assert proposal["status"] == "proposed"  # propose applies nothing
+
+
 def test_evolution_approve_interface_applies_only_validated_fields(tmp_path):
     _load_alice(tmp_path)
     base = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]["interface"]

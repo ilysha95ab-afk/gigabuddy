@@ -266,3 +266,30 @@ def test_persona_escalates_evolution_requests(tmp_path, monkeypatch):
     assert "передам наставнику" in persona
     assert "propose_evolution" in persona
     assert "Ouroboros" not in persona.split("Эволюция по запросу новичка")[1].split("###")[1]
+
+
+def test_persona_proactive_stage_transition(tmp_path, monkeypatch):
+    """v6.87.9: when the current stage's goals are visibly achieved (steps done,
+    the novice copes, asks next-level questions) the persona ITSELF initiates
+    the transition talk and records it as a role_tempo propose_evolution — it
+    must not wait for the novice's own request. The mentor still decides."""
+    monkeypatch.setenv("OUROBOROS_PRODUCT_MODE", "gigabuddy")
+    apply_gigabuddy_action(tmp_path, "get_state", {})
+    persona = build_gigabuddy_persona(tmp_path)
+    assert persona
+    assert "инициируй разговор о переходе" in persona
+    assert "role_tempo" in persona
+    assert "наставник" in persona  # the final call stays with the mentor
+
+
+def test_persona_never_claims_approval_before_real(tmp_path, monkeypatch):
+    """v6.87.9: the persona must NOT tell the novice the mentor has approved an
+    evolution/transition before a real approve happened — only «передала
+    наставнику, жду решения» (anti-overclaim, same class as the premature
+    «трек зафиксирован» incident)."""
+    monkeypatch.setenv("OUROBOROS_PRODUCT_MODE", "gigabuddy")
+    apply_gigabuddy_action(tmp_path, "get_state", {})
+    persona = build_gigabuddy_persona(tmp_path)
+    assert persona
+    assert "Никогда не заявляй" in persona
+    assert "жду решения" in persona
