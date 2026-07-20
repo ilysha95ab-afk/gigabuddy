@@ -695,6 +695,22 @@ def test_evolution_propose_applies_nothing(tmp_path):
     assert emp["evolution_proposals"][-1]["id"] == pid
 
 
+def test_evolution_propose_attempts_mentor_notify_fail_soft(tmp_path):
+    """v6.87.6: a successful propose ATTEMPTS a mentor Telegram notification
+    through the existing bridge seam. With no bridge/bound external chat (a
+    plain tmp drive) the notify is fail-soft: audit says telegram_notified is
+    False, the journal event remains, and the op still succeeds."""
+    _load_alice(tmp_path)
+    pid, r = _propose_evo(tmp_path, depth="interface", theme="ocean-calm", source="novice_request")
+    audit = r["audit"]
+    assert audit["result"] == "success"
+    assert audit["telegram_notified"] is False  # fail-soft, not an error
+    emp = _evo_emp(r["state"])
+    assert emp["evolution_proposals"][-1]["id"] == pid
+    events = [e for e in r["state"].get("events", []) if e.get("op") == "propose_evolution"]
+    assert events  # journal event preserved regardless of Telegram
+
+
 def test_evolution_approve_interface_applies_only_validated_fields(tmp_path):
     _load_alice(tmp_path)
     base = apply_gigabuddy_action(tmp_path, "get_state", {})["view"]["interface"]

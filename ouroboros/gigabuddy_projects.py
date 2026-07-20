@@ -3,12 +3,13 @@
 Each newcomer gets their OWN Project (named after them) so their dialogue is
 stored separately: switching employees switches the mounted center chat to that
 employee's project and the previous person's history stays put. The legacy
-single ``gigabuddy-novice`` project (``ensure_novice_project`` in
-``gigabuddy_state``) is untouched — this module only adds the per-employee
-deterministic id family ``gigabuddy-novice-<employee_id>`` with the same
-bounded tombstone-recovery walk (``-2`` … ``-20``). Fail-soft everywhere: a
-registry failure yields the zero descriptor, never an exception, so the eager
-``/api/state`` / gigabuddy action seam can never be broken by it.
+single ``gigabuddy-novice`` project (``ensure_novice_project``, moved here from
+``gigabuddy_state`` in v6.87.6 for the module-size gate) is preserved — this
+module only adds the per-employee deterministic id family
+``gigabuddy-novice-<employee_id>`` with the same bounded tombstone-recovery
+walk (``-2`` … ``-20``). Fail-soft everywhere: a registry failure yields the
+zero descriptor, never an exception, so the eager ``/api/state`` / gigabuddy
+action seam can never be broken by it.
 """
 
 from __future__ import annotations
@@ -82,5 +83,69 @@ def ensure_employee_project(
     log.warning(
         "GigaBuddy employee project unavailable: all %d candidate ids reserved",
         MAX_GENERATIONS,
+    )
+    return {"chat_id": 0, "project_id": ""}
+
+
+def ensure_novice_project(drive_root: pathlib.Path | str) -> Dict[str, Any]:
+    """Registry bridge (NOT a reducer mutation): idempotently register the legacy
+    single novice thread's project so its chat_id becomes a REGISTERED project
+    chat id. Moved here from ``gigabuddy_state`` (v6.87.6 module-size gate);
+    ``gigabuddy_state.ensure_novice_project`` remains as a thin re-export.
+
+    Thread partitioning only. ``projects_registry`` stays the single lifecycle /
+    reservation SSOT; this helper never caches or duplicates that authority. It
+    calls ``create_project`` (idempotent for an ACTIVE project, raising for a
+    non-active/tombstoned reserved id) and fails soft to a zero descriptor so an
+    eager caller such as ``/api/state`` can never be broken by it.
+
+    Tombstone recovery (v6.83.1): if the owner deletes the novice thread, its id
+    becomes permanently reserved (``tombstoned``) — the registry NEVER resurrects
+    an id, and rightly so. So the canonical id can be poisoned. Rather than
+    stranding the newcomer chat on an empty descriptor forever, walk a bounded,
+    DETERMINISTIC fallback suffix (``gigabuddy-novice-2``, ``-3`` …) and return
+    the first id that is usable — already ACTIVE (idempotent) or free to reserve.
+    The id stays stable across restarts (a given owner-delete only advances the
+    suffix once), so the thread keeps a durable, partitioned chat_id.
+    """
+    from ouroboros.gigabuddy_state import (
+        NOVICE_PROJECT_MAX_GENERATIONS,
+        NOVICE_PROJECT_NAME,
+        _novice_project_id_candidates,
+    )
+
+    try:
+        from ouroboros import projects_registry
+    except Exception as exc:  # fail-soft: never break the eager caller
+        log.warning("GigaBuddy novice project unavailable (import): %s", exc)
+        return {"chat_id": 0, "project_id": ""}
+
+    for candidate in _novice_project_id_candidates():
+        try:
+            project = projects_registry.create_project(
+                drive_root,
+                candidate,
+                name=NOVICE_PROJECT_NAME,
+                origin="gigabuddy",
+            )
+        except Exception as exc:
+            # This candidate is permanently reserved (tombstoned/deleting) — try
+            # the next deterministic suffix. Visible, not silent.
+            log.warning(
+                "GigaBuddy novice project id %r unusable, trying next: %s",
+                candidate,
+                exc,
+            )
+            continue
+        return {
+            "chat_id": int(project.get("chat_id") or 0),
+            "project_id": str(project.get("id") or ""),
+        }
+
+    # Every candidate in the bounded window is poisoned. Fail soft — the honest
+    # placeholder is correct here (the owner deleted an unusual number of threads).
+    log.warning(
+        "GigaBuddy novice project unavailable: all %d candidate ids reserved",
+        NOVICE_PROJECT_MAX_GENERATIONS,
     )
     return {"chat_id": 0, "project_id": ""}

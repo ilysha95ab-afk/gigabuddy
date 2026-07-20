@@ -251,3 +251,18 @@ def test_persona_proposes_track_fixation(tmp_path, monkeypatch):
     assert "зафиксир" in persona  # propose fixing the track
     assert "галочк" in persona    # checkmarks in the left tracker
     assert "set_track" not in persona  # persona speaks to the model, not internals
+
+
+def test_persona_escalates_evolution_requests(tmp_path, monkeypatch):
+    """v6.87.6: the persona MUST escalate design/role-change requests as
+    evolution proposals to the mentor («передам наставнику — он решит») instead
+    of promising to do them itself; the word «эволюция» in the personal-
+    improvement sense is now ALLOWED (the Ouroboros/versions ban stays)."""
+    monkeypatch.setenv("OUROBOROS_PRODUCT_MODE", "gigabuddy")
+    apply_gigabuddy_action(tmp_path, "get_state", {})  # empty-track default
+    persona = build_gigabuddy_persona(tmp_path)
+    assert persona
+    assert "эволюци" in persona
+    assert "передам наставнику" in persona
+    assert "propose_evolution" in persona
+    assert "Ouroboros" not in persona.split("Эволюция по запросу новичка")[1].split("###")[1]

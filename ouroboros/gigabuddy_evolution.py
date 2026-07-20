@@ -19,6 +19,10 @@ STRICTLY inside the GigaBuddy soft layer:
   status to ``approved``; it never mutates state and never claims an applied
   code change. The actual UI code change is an owner-landed, reviewed git edit.
 
+Per-novice branch rule (v6.87.6): structural ui-depth work lands in a dedicated
+git branch named after the novice — ``gigabuddy-<employee_id>`` (e.g.
+``gigabuddy-alisa_20260714``) — never directly on the shared working branch.
+
 Reversibility is IN-STATE (the ``pre_image``), NOT a repo git tag: runtime
 approvals write ``data/state/gigabuddy/state.json`` outside the repo. A git tag
 is the owner's code-release recovery point for the reducer diff, not a

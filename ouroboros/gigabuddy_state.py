@@ -1231,63 +1231,32 @@ def apply_gigabuddy_action(drive_root: pathlib.Path | str, op: str, payload: Any
         state = update_json_locked(path, mutate)
         state = result_box.get("state") or normalize_gigabuddy_state(state)
         audit = result_box.get("audit") or {"op": op, "employee_id": state["active_employee_id"], "result": "success"}
+    if op == "propose_evolution" and audit.get("result") == "success":
+        # Mentor Telegram ping (fail-soft): the journal event above is the source
+        # of truth; the notification is best-effort through the existing bridge.
+        from ouroboros.gigabuddy_notify import notify_mentor_evolution_request
+
+        emp = _active_employee(state)
+        proposal_id = str(audit.get("proposal_id") or "")
+        proposal = next(
+            (p for p in emp.get("evolution_proposals", []) if p.get("id") == proposal_id), {}
+        )
+        notified = notify_mentor_evolution_request(
+            drive_root, emp, str(audit.get("depth") or ""), proposal.get("payload") or {}
+        )
+        audit["telegram_notified"] = bool(notified)
     return {"ok": True, "state": state, "view": build_gigabuddy_view(state), "audit": audit}
 
 
 def ensure_novice_project(drive_root: pathlib.Path | str) -> Dict[str, Any]:
-    """Registry bridge (NOT a reducer mutation): idempotently register the novice
-    thread's project so its chat_id becomes a REGISTERED project chat id.
+    """Thin re-export — the implementation moved to
+    ``gigabuddy_projects.ensure_novice_project`` (v6.87.6 module-size gate).
+    Kept so existing imports (gateway settings/state, tests) stay untouched.
+    The docstring contract (idempotent registration, bounded deterministic
+    tombstone-recovery walk, fail-soft zero descriptor) is unchanged."""
+    from ouroboros.gigabuddy_projects import ensure_novice_project as _impl
 
-    Thread partitioning only. ``projects_registry`` stays the single lifecycle /
-    reservation SSOT; this helper never caches or duplicates that authority. It
-    calls ``create_project`` (idempotent for an ACTIVE project, raising for a
-    non-active/tombstoned reserved id) and fails soft to a zero descriptor so an
-    eager caller such as ``/api/state`` can never be broken by it.
-
-    Tombstone recovery (v6.83.1): if the owner deletes the novice thread, its id
-    becomes permanently reserved (``tombstoned``) — the registry NEVER resurrects
-    an id, and rightly so. So the canonical id can be poisoned. Rather than
-    stranding the newcomer chat on an empty descriptor forever, walk a bounded,
-    DETERMINISTIC fallback suffix (``gigabuddy-novice-2``, ``-3`` …) and return
-    the first id that is usable — already ACTIVE (idempotent) or free to reserve.
-    The id stays stable across restarts (a given owner-delete only advances the
-    suffix once), so the thread keeps a durable, partitioned chat_id.
-    """
-    try:
-        from ouroboros import projects_registry
-    except Exception as exc:  # fail-soft: never break the eager caller
-        log.warning("GigaBuddy novice project unavailable (import): %s", exc)
-        return {"chat_id": 0, "project_id": ""}
-
-    for candidate in _novice_project_id_candidates():
-        try:
-            project = projects_registry.create_project(
-                drive_root,
-                candidate,
-                name=NOVICE_PROJECT_NAME,
-                origin="gigabuddy",
-            )
-        except Exception as exc:
-            # This candidate is permanently reserved (tombstoned/deleting) — try
-            # the next deterministic suffix. Visible, not silent.
-            log.warning(
-                "GigaBuddy novice project id %r unusable, trying next: %s",
-                candidate,
-                exc,
-            )
-            continue
-        return {
-            "chat_id": int(project.get("chat_id") or 0),
-            "project_id": str(project.get("id") or ""),
-        }
-
-    # Every candidate in the bounded window is poisoned. Fail soft — the honest
-    # placeholder is correct here (the owner deleted an unusual number of threads).
-    log.warning(
-        "GigaBuddy novice project unavailable: all %d candidate ids reserved",
-        NOVICE_PROJECT_MAX_GENERATIONS,
-    )
-    return {"chat_id": 0, "project_id": ""}
+    return _impl(drive_root)
 
 
 # --- B1 role-contract / persona (product-mode novice thread only) ------------
@@ -1522,7 +1491,7 @@ def build_gigabuddy_persona(drive_root: pathlib.Path | str, query: str = "") -> 
         "говори строго в этой роли.\n\n"
         "### Жёсткая граница роли (никогда не нарушать в этом чате)\n"
         "- НИКОГДА не упоминай новичку Ouroboros, свою архитектуру, код, версии, "
-        "коммиты, эволюцию, разработку, ревью, конституцию/BIBLE, «я — ИИ/агент/"
+        "коммиты, разработку, ревью, конституцию/BIBLE, «я — ИИ/агент/"
         "языковая модель/система».\n"
         "- НИКОГДА не упоминай новичку режим/процессы разработчика: product mode / "
         "продуктовый режим, dev-режим, перезапуск/`/restart`, коммиты и версии, "
@@ -1535,6 +1504,15 @@ def build_gigabuddy_persona(drive_root: pathlib.Path | str, query: str = "") -> 
         "- Не показывай и не проговаривай служебные/чувствительные выводы (уровень "
         "тревожности, риски, mentor notes). Внешне говори только про формат помощи, "
         "уровень поддержки и стиль обучения.\n\n"
+        "### Эволюция по запросу новичка (эскалация наставнику)\n"
+        "Если новичок просит изменить оформление или интерфейс (тему, цвета, "
+        "маскота, анимацию) либо говорит о переходе на другую роль — это запрос "
+        "на эволюцию. Ты НЕ обещаешь исполнить её сама: скажи, что передашь "
+        "запрос наставнику, и он решит (например: «передам наставнику — он "
+        "решит»). Зафиксируй запрос как предложение эволюции через шов "
+        "propose_evolution — наставник получит уведомление и примет решение. "
+        "Слово «эволюция» в значении «персональное улучшение по запросу» здесь "
+        "использовать можно и нужно.\n\n"
         "### Кого ты сопровождаешь (из персистентного состояния)\n"
         f"{profile_block}\n"
         f"{stage_block}\n"
