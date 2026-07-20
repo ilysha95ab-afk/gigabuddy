@@ -238,3 +238,16 @@ def test_methodology_still_novice_safe(tmp_path, monkeypatch):
     assert "private mentor note" not in persona
     assert "anxiety" not in persona
     assert "confidence_risk" not in persona
+
+
+def test_persona_proposes_track_fixation(tmp_path, monkeypatch):
+    """v6.87.5: in the empty-track acquaintance scenario the persona MUST propose
+    fixing the defined track — the left tracker column renders state.track only
+    after it is recorded, so the proposal step is mandatory, not optional."""
+    monkeypatch.setenv("OUROBOROS_PRODUCT_MODE", "gigabuddy")
+    apply_gigabuddy_action(tmp_path, "get_state", {})  # empty-track default
+    persona = build_gigabuddy_persona(tmp_path)
+    assert persona
+    assert "зафиксир" in persona  # propose fixing the track
+    assert "галочк" in persona    # checkmarks in the left tracker
+    assert "set_track" not in persona  # persona speaks to the model, not internals
