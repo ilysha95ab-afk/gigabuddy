@@ -131,7 +131,7 @@ function normalizeKnowledgeBase(kb = {}) {
 }
 
 const HEX_ACCENT_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
-const ALLOWED_INTERFACE_THEMES = ['neutral', 'soft-cat', 'strict-terminal', 'warm-sunrise', 'ocean-calm'];
+const ALLOWED_INTERFACE_THEMES = ['neutral', 'soft-cat', 'strict-terminal', 'warm-sunrise', 'ocean-calm', 'fluffy-cat'];
 const ALLOWED_TONES = ['formal', 'friendly', 'playful'];
 
 /**
@@ -140,6 +140,29 @@ const ALLOWED_TONES = ['formal', 'friendly', 'playful'];
  * no arbitrary inline styling reaches the DOM. Values are validated so a config
  * can never inject unexpected CSS.
  */
+const PIXEL_CAT_CLASS = 'gigabuddy-pixel-cat';
+
+/**
+ * Mount/unmount the animated 8-bit cat that belongs to the 'fluffy-cat'
+ * per-employee theme. Scoped strictly by theme value: it exists in the DOM only
+ * while body[data-gigabuddy-theme="fluffy-cat"] is active (that value comes from
+ * the employee's OWN interface.theme), so other employees and the plain
+ * Ouroboros shell never see it.
+ */
+function syncGigaBuddyPixelCat(theme) {
+    const existing = document.querySelector(`.${PIXEL_CAT_CLASS}`);
+    if (theme === 'fluffy-cat') {
+        if (!existing) {
+            const cat = document.createElement('div');
+            cat.className = PIXEL_CAT_CLASS;
+            cat.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(cat);
+        }
+    } else if (existing) {
+        existing.remove();
+    }
+}
+
 export function applyGigaBuddyInterface(iface = {}, root = document) {
     const body = document.body;
     const theme = ALLOWED_INTERFACE_THEMES.includes(iface.theme) ? iface.theme : 'neutral';
@@ -152,6 +175,7 @@ export function applyGigaBuddyInterface(iface = {}, root = document) {
     } else {
         body.style.removeProperty('--gigabuddy-accent');
     }
+    syncGigaBuddyPixelCat(theme);
     void root;
 }
 
@@ -160,6 +184,7 @@ export function resetGigaBuddyInterface() {
     delete body.dataset.gigabuddyTheme;
     delete body.dataset.gigabuddyTone;
     body.style.removeProperty('--gigabuddy-accent');
+    syncGigaBuddyPixelCat('neutral');
 }
 
 function renderEvents(state) {

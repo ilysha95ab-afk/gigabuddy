@@ -6478,3 +6478,99 @@ body.product-gigabuddy .gigabuddy-adapt-stage[data-status="active"] .gigabuddy-a
     color: rgba(255, 255, 255, 0.68);
     line-height: 1.35;
 }
+
+/* ---- 'fluffy-cat' per-employee theme (v6.87.7, ui-depth evolution) ----
+   Activated ONLY via body[data-gigabuddy-theme="fluffy-cat"], which
+   applyGigaBuddyInterface sets from the employee's OWN interface.theme — so the
+   light shell and the pixel cat appear only in that employee's session and
+   never leak into other employees or the plain Ouroboros shell. Palette:
+   light "fluffy" pastel (no black + crimson), big radii, soft shadows. */
+body[data-gigabuddy-theme="fluffy-cat"] {
+    --gigabuddy-accent: #e98aa5;
+    background: linear-gradient(155deg, #fdf7f9 0%, #f7f2fb 55%, #eef4fb 100%);
+    color: #4a3f4d;
+}
+
+body[data-gigabuddy-theme="fluffy-cat"] .message,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-track-panel,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-track-hero,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-demo-context,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-stage-card,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-return-card,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-mentor-details,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-mentor-events,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-knowledge-link {
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid rgba(233, 138, 165, 0.22);
+    border-radius: 20px;
+    box-shadow: 0 8px 24px rgba(190, 150, 175, 0.18);
+    color: #4a3f4d;
+}
+
+body[data-gigabuddy-theme="fluffy-cat"] .message,
+body[data-gigabuddy-theme="fluffy-cat"] .message p,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-track-panel,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-track-panel p,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-track-panel span,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-track-panel h3,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-track-panel summary,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-demo-context p,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-demo-context span,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-mentor-details p,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-mentor-details summary,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-mentor-events summary {
+    color: #5a4a58;
+}
+
+body[data-gigabuddy-theme="fluffy-cat"] #chat-input-area textarea,
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-return-pin input {
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(233, 138, 165, 0.3);
+    border-radius: 18px;
+    color: #4a3f4d;
+}
+
+body[data-gigabuddy-theme="fluffy-cat"] .gigabuddy-chip {
+    background: rgba(233, 138, 165, 0.14);
+    color: #a0506c;
+}
+
+/* Animated 8-bit cat: CSS-only pixel sprite (box-shadow art, no assets), hops
+   along the bottom of her chat next to the message boxes. The element is
+   mounted by syncGigaBuddyPixelCat only while this theme is active. */
+.gigabuddy-pixel-cat {
+    position: fixed;
+    left: 50%;
+    bottom: 148px;
+    width: 6px;
+    height: 6px;
+    margin-left: -160px;
+    z-index: 30;
+    pointer-events: none;
+    image-rendering: pixelated;
+    background: transparent;
+    box-shadow:
+        12px 0 0 #5b4a55, 42px 0 0 #5b4a55,
+        12px 6px 0 #5b4a55, 18px 6px 0 #5b4a55, 36px 6px 0 #5b4a55, 42px 6px 0 #5b4a55,
+        6px 12px 0 #5b4a55, 12px 12px 0 #f0a8bc, 18px 12px 0 #f0a8bc, 24px 12px 0 #f0a8bc, 30px 12px 0 #f0a8bc, 36px 12px 0 #f0a8bc, 42px 12px 0 #f0a8bc, 48px 12px 0 #5b4a55,
+        0 18px 0 #5b4a55, 6px 18px 0 #f0a8bc, 12px 18px 0 #f0a8bc, 18px 18px 0 #ffffff, 24px 18px 0 #f0a8bc, 30px 18px 0 #f0a8bc, 36px 18px 0 #ffffff, 42px 18px 0 #f0a8bc, 48px 18px 0 #f0a8bc, 54px 18px 0 #5b4a55,
+        0 24px 0 #5b4a55, 6px 24px 0 #f0a8bc, 12px 24px 0 #f0a8bc, 18px 24px 0 #f0a8bc, 24px 24px 0 #f0a8bc, 30px 24px 0 #f0a8bc, 36px 24px 0 #f0a8bc, 42px 24px 0 #f0a8bc, 48px 24px 0 #f0a8bc, 54px 24px 0 #5b4a55,
+        0 30px 0 #5b4a55, 6px 30px 0 #f0a8bc, 12px 30px 0 #f0a8bc, 18px 30px 0 #f0a8bc, 24px 30px 0 #f0a8bc, 30px 30px 0 #f0a8bc, 36px 30px 0 #f0a8bc, 42px 30px 0 #f0a8bc, 48px 30px 0 #f0a8bc, 54px 30px 0 #5b4a55,
+        6px 36px 0 #5b4a55, 12px 36px 0 #f0a8bc, 18px 36px 0 #f0a8bc, 24px 36px 0 #f0a8bc, 30px 36px 0 #f0a8bc, 36px 36px 0 #f0a8bc, 42px 36px 0 #f0a8bc, 48px 36px 0 #5b4a55,
+        12px 42px 0 #5b4a55, 18px 42px 0 #5b4a55, 24px 42px 0 #5b4a55, 30px 42px 0 #5b4a55, 36px 42px 0 #5b4a55, 42px 42px 0 #5b4a55;
+    animation: gigabuddy-cat-hop 12s ease-in-out infinite;
+}
+
+@keyframes gigabuddy-cat-hop {
+    0%   { transform: translate(0, 0) scaleX(1); }
+    8%   { transform: translate(36px, -22px) scaleX(1); }
+    16%  { transform: translate(72px, 0) scaleX(1); }
+    30%  { transform: translate(72px, 0) scaleX(1); }
+    38%  { transform: translate(108px, -22px) scaleX(1); }
+    46%  { transform: translate(144px, 0) scaleX(1); }
+    58%  { transform: translate(144px, 0) scaleX(-1); }
+    66%  { transform: translate(108px, -22px) scaleX(-1); }
+    74%  { transform: translate(72px, 0) scaleX(-1); }
+    86%  { transform: translate(36px, -22px) scaleX(-1); }
+    100% { transform: translate(0, 0) scaleX(1); }
+}

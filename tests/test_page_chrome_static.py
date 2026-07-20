@@ -239,6 +239,35 @@ def test_gigabuddy_interface_personalization_surface():
     assert "gigabuddy" not in contracts.lower()
 
 
+def test_gigabuddy_fluffy_cat_theme_scoped_to_employee():
+    """v6.87.7: the 'fluffy-cat' ui-depth evolution (light shell + animated
+    8-bit cat) is strictly scoped to the employee whose own interface.theme
+    carries the value — other employees and the plain shell are untouched."""
+    gigabuddy = _read("web/modules/gigabuddy.js")
+    css = _read("web/style.css")
+    state_py = _read("ouroboros/gigabuddy_state.py")
+
+    # The theme is a validated enum member on BOTH sides (js shell + reducer).
+    assert "'fluffy-cat'" in gigabuddy
+    assert '"fluffy-cat"' in state_py
+    # All light-shell rules are gated on the per-employee body attribute, never
+    # on the global product-mode class — so they cannot leak to other employees.
+    assert 'body[data-gigabuddy-theme="fluffy-cat"]' in css
+    assert "body.product-gigabuddy .message" not in css or 'fluffy-cat' in css
+    # Pixel cat: CSS-only sprite (box-shadow art, no external assets) + hop
+    # keyframes, mounted/unmounted from JS only for this theme.
+    assert "gigabuddy-pixel-cat" in css
+    assert "@keyframes gigabuddy-cat-hop" in css
+    assert "box-shadow:" in css
+    assert "url(" not in css.split(".gigabuddy-pixel-cat")[1].split("@keyframes")[0]
+    assert "syncGigaBuddyPixelCat" in gigabuddy
+    # The cat mounts ONLY for fluffy-cat and is removed on any other theme/reset.
+    assert "theme === 'fluffy-cat'" in gigabuddy
+    assert "existing.remove()" in gigabuddy
+    assert "syncGigaBuddyPixelCat(theme)" in gigabuddy
+    assert "syncGigaBuddyPixelCat('neutral')" in gigabuddy
+
+
 def test_gigabuddy_three_column_layout_and_novice_thread(tmp_path=None):
     """B1 (v6.76.0): cohesive 3-column product-mode layout (track / novice chat /
     panel) with a backend-partitioned novice thread reusing project chat_id

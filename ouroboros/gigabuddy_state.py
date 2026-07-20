@@ -92,7 +92,7 @@ MAX_SUMMARY_CHARS = 900
 # Interface personalization (hyper-personification). These are presentation-only
 # attributes that adapt the product shell per employee; they are NOT sensitive
 # diagnostics and ARE safe to surface in the novice view.
-ALLOWED_THEMES = ("neutral", "soft-cat", "strict-terminal", "warm-sunrise", "ocean-calm")
+ALLOWED_THEMES = ("neutral", "soft-cat", "strict-terminal", "warm-sunrise", "ocean-calm", "fluffy-cat")
 ALLOWED_TONES = ("formal", "friendly", "playful")
 DEFAULT_ACCENT = "#c93545"
 # The panel section identifiers a layout config may order/hide.
