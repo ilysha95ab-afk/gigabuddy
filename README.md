@@ -37,15 +37,15 @@ Ouroboros — самоэволюционирующийся агент с соб�
 | Слот | По умолчанию | Назначение |
 |------|--------------|------------|
 | `OUROBOROS_MODEL` (main) | `google/gemini-3.5-flash` | Основная рассуждающая модель — диалоги, персоны, решения |
-| `OUROBOROS_MODEL_HEAVY` | пусто → main | Сильная acting/coding-линия (сложные задачи и субагенты) |
-| `OUROBOROS_MODEL_LIGHT` | пусто → main | Быстрые helper-вызовы: safety-проверки, саммари профиля |
-| `OUROBOROS_MODEL_VISION` | пусто → main | Зрение: анализ присланных изображений и скриншотов |
-| `OUROBOROS_MODEL_CONSCIOUSNESS` | пусто → main | Фоновое сознание (размышления между задачами) |
-| `OUROBOROS_MODEL_FALLBACKS` | `anthropic/claude-sonnet-4.6` | Цепочка запасных моделей при сбое основной |
-| `OUROBOROS_REVIEW_MODELS` | triad из 3 моделей | Иммунный multi-model review каждого коммита (2-of-3 кворум) |
-| `OUROBOROS_SCOPE_REVIEW_MODELS` | `anthropic/claude-fable-5` | Scope-ревьюер: полнота и кросс-модульная согласованность (≥1M контекст) |
+| `OUROBOROS_MODEL_HEAVY` | `moonshotai/kimi-k3` | Сильная acting/coding-линия (сложные задачи и субагенты) |
+| `OUROBOROS_MODEL_LIGHT` | `moonshotai/kimi-k3` | Быстрые helper-вызовы: safety-проверки, саммари профиля |
+| `OUROBOROS_MODEL_VISION` | `openai/gpt-4o` | Зрение: анализ присланных изображений и скриншотов |
+| `OUROBOROS_MODEL_CONSCIOUSNESS` | `moonshotai/kimi-k3`  | Фоновое сознание (размышления между задачами) |
+| `OUROBOROS_MODEL_FALLBACKS` | `z-ai/glm-5.2` | Цепочка запасных моделей при сбое основной |
+| `OUROBOROS_REVIEW_MODELS` | triad из 3 моделей | Иммунный multi-model review каждого коммита (2-of-3 кворум `moonshotai/kimi-k3)` |
+| `OUROBOROS_SCOPE_REVIEW_MODELS` | `openai/gpt-5.5` | Scope-ревьюер: полнота и кросс-модульная согласованность (≥1M контекст) |
 
-**Провайдеры** (любой слот может смотреть в любой из них): OpenRouter, OpenAI, Anthropic, Cloud.ru Foundation Models, Sber GigaChat, локальная модель через llama.cpp (GGUF). Формат значения — `<провайдер>::<модель>` (например `cloudru::openai/gpt-5.5`); без префикса — OpenRouter.
+**Провайдеры** (любой слот может смотреть в любой из них): OpenRouter, Cloud.ru Foundation Models. 
 
 Для ГигаБадди особенно важны **review-слоты**: именно они дают реальный triad + scope-гейт, через который проходит каждая одобренная эволюция. Наставник выбирает модели под свои ключи при первичной настройке — значения по умолчанию работают из коробки с одним OpenRouter-ключом.
 
@@ -107,7 +107,8 @@ Ouroboros — самоэволюционирующийся агент с соб�
 
 ### Демо-профили
 
-`alice-demo` и `leonid-demo` — это загружаемые демо-конфиги. Для демонстрации разработчик переключает их вручную (загрузка конфига = полная замена состояния), чтобы показать, как меняется и поведение, и внешний вид под разных сотрудников.
+Возьмите с гуглдиска материалы`gigabuddy-demo-data.zip` и следуйте README файлу. Там вы найдете загружаемые синтетические данные по всем кейсам.
+Качественный результат работы агента был зафиксирован в экспериментах на всех демо кейсах. 
 
 ### Статус функциональности
 
@@ -202,6 +203,9 @@ OUROBOROS_DATA_DIR=~/ouroboros-test-data ouroboros server
 ### Шаг 2. Какие файлы грузить и куда
 
 Каждый сотрудник — одна папка. Точные пути:
+
+Синтетические данные, по которым были сняты скриншоты можете найти по ссылке в презентации. 
+Возьмите с гуглдиска материалы`gigabuddy-demo-data.zip` и следуйте README инструкции.
 
 ```
 ~/Ouroboros/gigabuddy/employees/<employee_id>/
